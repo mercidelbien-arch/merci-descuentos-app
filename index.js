@@ -7,7 +7,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Ruta de prueba (Render usa esto para verificar que el server está vivo)
+// Ruta de prueba para verificar que el servidor está vivo
 app.get("/health", (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
@@ -19,10 +19,12 @@ app.get("/health", (_req, res) => {
 app.get("/cupones/:codigo", async (req, res) => {
   const { codigo } = req.params;
   try {
-    const { rows } = await q(
-      `SELECT id, codigo, descuento_porcentaje, tope_maximo, usos_maximos, usos_realizados, activo
+    const rows = await q(
+      `SELECT id, codigo, descuento_porcentaje, tope_maximo, usos_maximos, usos_realizados, activo 
        FROM cupones 
-       WHERE codigo = $1 AND activo = true`,
+       WHERE codigo = $1 
+       AND activo = true 
+       AND (usos_realizados < usos_maximos OR usos_maximos = 0)`,
       [codigo]
     );
 
@@ -32,13 +34,13 @@ app.get("/cupones/:codigo", async (req, res) => {
 
     res.json(rows[0]);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Error interno del servidor" });
+    console.error("Error consultando cupón:", err);
+    res.status(500).json({ error: "Error en el servidor" });
   }
 });
 
-// 🚀 Esto es lo que faltaba: arrancar el servidor en el puerto que Render asigna
-const PORT = process.env.PORT || 3000;
+// Configuración del puerto
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(Servidor escuchando en puerto ${PORT});
 });
