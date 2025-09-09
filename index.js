@@ -38,7 +38,16 @@ app.get("/cupones/:codigo", async (req, res) => {
     res.status(500).json({ error: "Error en el servidor" });
   }
 });
-
+// Endpoint de prueba de la base de datos
+app.get("/test-db", async (req, res) => {
+  try {
+    const result = await q("SELECT NOW()");
+    res.json({ ok: true, time: result.rows[0] });
+  } catch (err) {
+    console.error("Error al conectar con la DB:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 // Configuración del puerto
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
