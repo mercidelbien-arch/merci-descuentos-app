@@ -47,5 +47,5 @@ app.get("/test-db", async (req, res) => {
 // Configuración del puerto
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(Servidor escuchando en puerto ${PORT});
+  console.log("Servidor escuchando en puerto " +PORT);
 });
