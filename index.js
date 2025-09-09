@@ -32,6 +32,28 @@ app.get("/test-db", async (_req, res) => {
   }
 });
 
+// GET /cupones/:codigo
+app.get("/cupones/:codigo", async (req, res) => {
+  const { codigo } = req.params;
+  try {
+    const { rows } = await q(
+      `SELECT id, codigo, descuento_porcentaje, tope_maximo, usos_maximos, usos_realizados, activo 
+       FROM cupones 
+       WHERE codigo = $1 AND activo = true`,
+      [codigo]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ ok: false, error: "Cupón no encontrado o inactivo" });
+    }
+
+    res.json({ ok: true, cupon: rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, error: "Error consultando la base de datos" });
+  }
+});
+
 // Configuración del puerto
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
