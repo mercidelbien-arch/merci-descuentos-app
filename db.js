@@ -1,27 +1,15 @@
 // db.js
-import pg from "pg";
-const { Pool } = pg;
+import pkg from "pg";
+const { Pool } = pkg;
 
-// Usamos la cadena de conexión que pusiste en Render (DB_URL)
+// Creamos el pool de conexión usando la variable de entorno DB_URL
 const pool = new Pool({
   connectionString: process.env.DB_URL,
-  // Railway/Render suelen requerir SSL
-  ssl: { rejectUnauthorized: false },
+  ssl: { rejectUnauthorized: false }, // Necesario para conexiones externas seguras
 });
 
-// Helper para consultas: q(sql, params) -> rows
-export async function q(text, params = []) {
-  const { rows } = await pool.query(text, params);
-  return rows;
-}
+// Función rápida para ejecutar queries
+export const q = (text, params) => pool.query(text, params);
 
-// Probar conexión al iniciar
-pool
-  .connect()
-  .then((c) => {
-    c.release();
-    console.log("DB conectada ✅");
-  })
-  .catch((err) => {
-    console.error("Error conectando a DB ❌", err);
-  })
+// Exportamos el pool si lo necesitás en otras partes
+export default pool;
