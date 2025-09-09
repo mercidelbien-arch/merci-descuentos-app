@@ -1,14 +1,24 @@
 // db.js
-import pkg from "pg";
-const { Pool } = pkg;
+import pg from "pg";
 
-// Render/Variables -> DB_URL (la que ya pegaste)
+const { Pool } = pg;
+
+// Render/ Railway: la URL viene de la env DB_URL
 const connectionString = process.env.DB_URL;
 
 export const pool = new Pool({
   connectionString,
-  ssl: { rejectUnauthorized: false }, // necesario en Render
+  // En muchos PaaS hace falta SSL
+  ssl: { rejectUnauthorized: false },
 });
 
-// Helper para consultas
-export const q = (text, params = []) => pool.query(text, params);
+// Helper simple para consultas
+export async function q(strings, ...values) {
+  // Permite usar q`SELECT * FROM tabla WHERE id=${id}`
+  const text =
+    Array.isArray(strings)
+      ? strings.map((s, i) => s + (i < values.length ? $${i + 1} : `)).join(`)
+      : strings;
+  const res = await pool.query(text, values);
+  return res.rows;
+}
