@@ -20,6 +20,7 @@ const pool = new Pool({
 app.get("/health", (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString() });
 });
+
 // Endpoint de prueba de DB
 app.get("/test-db", async (_req, res) => {
   try {
@@ -34,5 +35,5 @@ app.get("/test-db", async (_req, res) => {
 // Configuración del puerto
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log("Servidor escuchando en puerto " +PORT);
+  console.log("Servidor escuchando en puerto " + PORT);
 });
