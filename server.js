@@ -1,4 +1,4 @@
-// server.js — App Merci Descuentos (OAuth + Neon/Postgres + Campañas)
+// server.js — App Merci Descuentos (OAuth + Neon/Postgres + Campañas, con diagnóstico en POST)
 
 import express from "express";
 import dotenv from "dotenv";
@@ -150,7 +150,6 @@ app.get("/admin", async (req, res) => {
 
 /**
  * GET /api/campaigns?store_id=XXXX
- * Lista campañas de una tienda
  */
 app.get("/api/campaigns", async (req, res) => {
   try {
@@ -179,24 +178,7 @@ app.get("/api/campaigns", async (req, res) => {
 });
 
 /**
- * POST /api/campaigns
- * Crea una campaña
- * Body JSON:
- * {
- *   store_id, code, name,
- *   discount_type: 'percent'|'fixed',
- *   discount_value: number,
- *   max_uses_per_coupon: number|null,
- *   max_uses_per_customer: number|null,
- *   valid_from: 'YYYY-MM-DD',
- *   valid_until: 'YYYY-MM-DD',
- *   apply_scope: 'all'|'categories'|'products',
- *   min_cart_amount: number|null,
- *   max_discount_amount: number|null,
- *   monthly_cap_amount: number|null,
- *   exclude_sale_items: boolean,
- *   status: 'active'|'paused'|'archived' (opcional, default 'active')
- * }
+ * POST /api/campaigns — crea campaña
  */
 app.post("/api/campaigns", async (req, res) => {
   try {
@@ -218,7 +200,6 @@ app.post("/api/campaigns", async (req, res) => {
       status = "active",
     } = req.body;
 
-    // Validaciones mínimas
     if (!store_id || !code || !name || !discount_type || discount_value == null || !valid_from || !valid_until) {
       return res.status(400).send("Faltan campos obligatorios");
     }
@@ -260,12 +241,24 @@ app.post("/api/campaigns", async (req, res) => {
       ]
     );
 
-    res.json(rows[0]);
+    return res.json(rows[0]);
   } catch (e) {
+    // 🔎 DIAGNÓSTICO DETALLADO
     console.error("POST /api/campaigns error:", e);
-    // Violación de UNIQUE (store_id, code)
-    if (e.code === "23505") return res.status(409).send("El código de campaña ya existe en esta tienda");
-    res.status(500).send("Error al crear campaña");
+    if (e.code === "23505") {
+      // unique_violation
+      return res.status(409).json({ message: "El código de campaña ya existe en esta tienda", code: e.code });
+    }
+    // devolvemos todo lo útil para ver el motivo exacto
+    return res.status(500).json({
+      message: "Error al crear campaña",
+      code: e.code,
+      detail: e.detail,
+      hint: e.hint,
+      table: e.table,
+      column: e.column,
+      constraint: e.constraint,
+    });
   }
 });
 
