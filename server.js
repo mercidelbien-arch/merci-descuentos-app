@@ -1,4 +1,4 @@
-// server.js — App Merci Descuentos con OAuth + DB + endpoints campañas
+// server.js — App Merci Descuentos (OAuth + Neon/Postgres + Campañas)
 
 import express from "express";
 import dotenv from "dotenv";
@@ -6,7 +6,7 @@ import cookieSession from "cookie-session";
 import axios from "axios";
 import crypto from "crypto";
 import { URLSearchParams } from "url";
-import pool from "./db.js"; // conexión a Postgres
+import pool from "./db.js"; // conexión a Neon/Postgres
 
 dotenv.config();
 
@@ -25,12 +25,27 @@ app.use(
 
 const { TN_CLIENT_ID, TN_CLIENT_SECRET, APP_BASE_URL } = process.env;
 
-// ---------------- Salud ----------------
+// ------------------------------
+// Salud
+// ------------------------------
 app.get("/", (_req, res) => {
   res.send("OK");
 });
 
-// ---------------- OAuth ----------------
+// ------------------------------
+// Helpers DB
+// ------------------------------
+async function tokenExists(store_id) {
+  const { rowCount } = await pool.query(
+    "SELECT 1 FROM stores WHERE store_id = $1 LIMIT 1",
+    [String(store_id)]
+  );
+  return rowCount > 0;
+}
+
+// ------------------------------
+// OAuth callback
+// ------------------------------
 app.get("/oauth/callback", async (req, res) => {
   try {
     const { code, state } = req.query;
@@ -60,13 +75,11 @@ app.get("/oauth/callback", async (req, res) => {
       console.error("Token response sin access_token:", data);
       return res.status(400).send("No se recibió token");
     }
-
     if (!sid) {
       console.warn("No se recibió store_id/user_id en token. Redirigiendo a /admin genérico.");
       return res.redirect(`/admin`);
     }
 
-    // Guardar en DB
     await pool.query(
       `INSERT INTO stores (store_id, access_token)
        VALUES ($1, $2)
@@ -83,30 +96,61 @@ app.get("/oauth/callback", async (req, res) => {
   }
 });
 
-// ---------------- Admin mínimo ----------------
+// ------------------------------
+// Admin mínimo (lee estado desde DB)
+// ------------------------------
 app.get("/admin", async (req, res) => {
   const { store_id } = req.query;
   let hasToken = false;
+  let campaigns = [];
 
   if (store_id) {
-    const { rows } = await pool.query("SELECT 1 FROM stores WHERE store_id = $1", [store_id]);
-    hasToken = rows.length > 0;
+    try {
+      hasToken = await tokenExists(store_id);
+      const { rows } = await pool.query(
+        `SELECT id, code, name, status, discount_type, discount_value,
+                valid_from, valid_until, apply_scope, monthly_cap_amount
+         FROM campaigns
+         WHERE store_id = $1
+         ORDER BY created_at DESC`,
+        [store_id]
+      );
+      campaigns = rows;
+    } catch (e) {
+      console.error("DB admin error:", e.message);
+    }
   }
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.end(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Cupones Merci</title></head>
 <body style="font-family:system-ui;padding:24px;max-width:960px;margin:auto">
-  <h1>App instalada para la tienda: ${store_id || ""}</h1>
-  <p>${hasToken ? "Token guardado (DB) ✔️" : "Sin token o store_id. Instalá desde <code>/install?store_id=TU_TIENDA</code>"} </p>
+  <h1>App instalada ${store_id ? `para la tienda: <code>${store_id}</code>` : ""}</h1>
+  <p>${hasToken ? "Token guardado (DB) ✔️" : "Sin token. Reinstalá desde /install"}</p>
   <hr/>
-  <p>Panel mínimo. Próximo paso: UI de campañas/cupones y Discount API.</p>
+  <h2>Campañas</h2>
+  ${campaigns.length === 0
+    ? "<p>No hay campañas aún.</p>"
+    : `<ul>` + campaigns.map(c =>
+        `<li>
+          <b>${c.name}</b> <code>${c.code}</code> — ${c.status}
+          (${c.discount_type === 'percent' ? c.discount_value + '%' : '$' + c.discount_value})
+          <br/>Vigencia: ${c.valid_from} → ${c.valid_until}
+          <br/>Ámbito: ${c.apply_scope}${c.monthly_cap_amount ? ` — Tope mensual: $${c.monthly_cap_amount}` : ""}
+        </li>`
+      ).join("") + `</ul>`
+  }
+  <p>Próximo paso: formulario para crear nuevas campañas desde la UI.</p>
 </body></html>`);
 });
 
-// ---------------- Endpoints campañas ----------------
+// ------------------------------
+// Endpoints de campañas
+// ------------------------------
+
 /**
  * GET /api/campaigns?store_id=XXXX
+ * Lista campañas de una tienda
  */
 app.get("/api/campaigns", async (req, res) => {
   try {
@@ -136,6 +180,23 @@ app.get("/api/campaigns", async (req, res) => {
 
 /**
  * POST /api/campaigns
+ * Crea una campaña
+ * Body JSON:
+ * {
+ *   store_id, code, name,
+ *   discount_type: 'percent'|'fixed',
+ *   discount_value: number,
+ *   max_uses_per_coupon: number|null,
+ *   max_uses_per_customer: number|null,
+ *   valid_from: 'YYYY-MM-DD',
+ *   valid_until: 'YYYY-MM-DD',
+ *   apply_scope: 'all'|'categories'|'products',
+ *   min_cart_amount: number|null,
+ *   max_discount_amount: number|null,
+ *   monthly_cap_amount: number|null,
+ *   exclude_sale_items: boolean,
+ *   status: 'active'|'paused'|'archived' (opcional, default 'active')
+ * }
  */
 app.post("/api/campaigns", async (req, res) => {
   try {
@@ -157,6 +218,7 @@ app.post("/api/campaigns", async (req, res) => {
       status = "active",
     } = req.body;
 
+    // Validaciones mínimas
     if (!store_id || !code || !name || !discount_type || discount_value == null || !valid_from || !valid_until) {
       return res.status(400).send("Faltan campos obligatorios");
     }
@@ -201,12 +263,15 @@ app.post("/api/campaigns", async (req, res) => {
     res.json(rows[0]);
   } catch (e) {
     console.error("POST /api/campaigns error:", e);
+    // Violación de UNIQUE (store_id, code)
     if (e.code === "23505") return res.status(409).send("El código de campaña ya existe en esta tienda");
     res.status(500).send("Error al crear campaña");
   }
 });
 
-// ---------------- Webhooks / placeholders ----------------
+// ------------------------------
+// Placeholders (webhooks / discounts)
+// ------------------------------
 app.post("/discounts/callback", (_req, res) => {
   return res.json({ discounts: [] });
 });
@@ -215,6 +280,6 @@ app.post("/webhooks/orders/create", (_req, res) => {
   return res.sendStatus(200);
 });
 
-// ---------------- Start server ----------------
+// ------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
