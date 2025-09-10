@@ -423,4 +423,4 @@ app.post("/webhooks/orders/create", (_req, res) => res.sendStatus(200));
 
 // ---------------- Start ----------------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(\`Server on http://localhost:\${PORT}\`));
+app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
