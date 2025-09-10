@@ -1,4 +1,4 @@
-// server.js — App Merci Descuentos (MVP OAuth + DB + Campañas)
+// server.js — App Merci Descuentos (OAuth + DB + Campaigns API) — alineado con CHECK(type)
 
 import express from "express";
 import dotenv from "dotenv";
@@ -6,7 +6,7 @@ import cookieSession from "cookie-session";
 import axios from "axios";
 import crypto from "crypto";
 import { URLSearchParams } from "url";
-import pool from "./db.js"; // <- usa tu db.js con la conexión a Neon
+import pool from "./db.js"; // tu conexión a Neon/Postgres (Pool)
 
 dotenv.config();
 
@@ -23,21 +23,26 @@ app.use(
   })
 );
 
-/* ---------- HEALTH ---------- */
+// ---------------- Salud ----------------
 app.get("/", (_req, res) => res.send("OK"));
 
-/* ---------- OAUTH (instalación) ---------- */
+// ---------------- Install/OAuth ----------------
 app.get("/install", (req, res) => {
-  const { store_id } = req.query;
+  const store_id = String(req.query.store_id || "").trim();
   if (!store_id) return res.status(400).send("Falta store_id");
+
   const state = crypto.randomBytes(16).toString("hex");
   req.session.state = state;
+
   const redirect_uri = `${process.env.APP_BASE_URL}/oauth/callback`;
-  const url = `https://www.tiendanube.com/apps/authorize?response_type=code&client_id=${process.env.TN_CLIENT_ID}&redirect_uri=${encodeURIComponent(
-    redirect_uri
-  )}&state=${state}&scope=read_products,write_discounts,read_discounts&store_id=${encodeURIComponent(
-    store_id
-  )}`;
+  const url =
+    `https://www.tiendanube.com/apps/authorize?` +
+    `client_id=${encodeURIComponent(process.env.TN_CLIENT_ID)}` +
+    `&redirect_uri=${encodeURIComponent(redirect_uri)}` +
+    `&state=${encodeURIComponent(state)}` +
+    `&response_type=code` +
+    `&scope=read_products,write_discounts,read_discounts`;
+
   res.redirect(url);
 });
 
@@ -45,8 +50,7 @@ app.get("/oauth/callback", async (req, res) => {
   try {
     const { code, state } = req.query;
     if (!code || !state) return res.status(400).send("Callback inválido");
-    if (state !== req.session.state)
-      return res.status(400).send("Estado inválido");
+    if (state !== req.session.state) return res.status(400).send("Estado inválido");
 
     const redirect_uri = `${process.env.APP_BASE_URL}/oauth/callback`;
     const form = new URLSearchParams();
@@ -65,16 +69,18 @@ app.get("/oauth/callback", async (req, res) => {
     const data = tokenRes.data || {};
     const access_token = data.access_token;
     const sid = String(data.store_id || data.user_id || "").trim();
+
     if (!access_token) {
       console.error("Token sin access_token:", data);
       return res.status(400).send("No se recibió token");
     }
 
-    // guarda/actualiza token
+    // Guardamos/actualizamos token
     await pool.query(
       `INSERT INTO stores (store_id, access_token)
        VALUES ($1, $2)
-       ON CONFLICT (store_id) DO UPDATE SET access_token = EXCLUDED.access_token, updated_at = now()`,
+       ON CONFLICT (store_id) DO UPDATE
+       SET access_token = EXCLUDED.access_token, updated_at = now()`,
       [sid, access_token]
     );
 
@@ -85,15 +91,13 @@ app.get("/oauth/callback", async (req, res) => {
   }
 });
 
-/* ---------- ADMIN ---------- */
+// ---------------- Admin mínimo ----------------
 app.get("/admin", async (req, res) => {
   const { store_id } = req.query;
-  // chequeo rápido si hay token en DB
   let hasToken = false;
+
   if (store_id) {
-    const r = await pool.query(`SELECT 1 FROM stores WHERE store_id=$1`, [
-      String(store_id),
-    ]);
+    const r = await pool.query(`SELECT 1 FROM stores WHERE store_id=$1`, [String(store_id)]);
     hasToken = r.rowCount > 0;
   }
 
@@ -101,78 +105,86 @@ app.get("/admin", async (req, res) => {
   res.end(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Cupones Merci</title></head>
 <body style="font-family:system-ui;padding:24px;max-width:960px;margin:auto">
-  <h1>App instalada para la tienda: ${store_id || "-"}</h1>
-  <p>${hasToken ? "Token guardado (DB) ✔️" : "Sin token. Instalá desde <code>/install?store_id=TU_TIENDA</code>"}</p>
+  <h1>App instalada ${store_id ? `para la tienda: <code>${store_id}</code>` : ""}</h1>
+  <p>${hasToken ? "Token guardado (DB) ✔️" : "Sin token. Instalá desde <code>/install?store_id=TU_TIENDA</code>"} </p>
   <hr/>
   <p>Panel mínimo. Próximo paso: UI de campañas/cupones y Discount API.</p>
 </body></html>`);
 });
 
-/* ============================================================================
-   API DE CAMPAÑAS
-   ==========================================================================*/
+// ---------------- API Campaigns ----------------
 
-/** GET /api/campaigns?store_id=XXXX */
+// GET /api/campaigns?store_id=XXXX
 app.get("/api/campaigns", async (req, res) => {
   try {
-    const { store_id } = req.query;
+    const store_id = String(req.query.store_id || "").trim();
     if (!store_id) return res.json([]);
-    const r = await pool.query(
-      `SELECT id, store_id, code, name, created_at
+
+    const { rows } = await pool.query(
+      `SELECT id, store_id, code, name, status,
+              discount_type, discount_value,
+              valid_from, valid_until,
+              apply_scope, min_cart_amount,
+              max_discount_amount, monthly_cap_amount,
+              exclude_sale_items,
+              created_at, updated_at
          FROM campaigns
         WHERE store_id = $1
-        ORDER BY created_at DESC
-        LIMIT 50`,
-      [String(store_id)]
+        ORDER BY created_at DESC`,
+      [store_id]
     );
-    res.json(r.rows);
-  } catch (e) {
-    console.error("GET /api/campaigns error:", e.message);
-    res.status(500).json({ message: "Error listando campañas" });
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Error obteniendo campañas:", err);
+    res.status(500).json({ message: "Error al obtener campañas" });
   }
 });
 
-/** POST /api/campaigns
- *  Espera JSON parecido a:
- *  {
- *    store_id, code, name,
- *    discount_type, discount_value,
- *    valid_from, valid_until, apply_scope,
- *    min_cart_amount, max_discount_amount, monthly_cap_amount, exclude_sale_items,
- *    (opcional/legacy) type, value, min_cart, monthly_cap, exclude_on_sale
- *  }
- */
+// POST /api/campaigns
 app.post("/api/campaigns", async (req, res) => {
   try {
     const b = req.body || {};
 
+    // Requeridos mínimos
     const store_id = String(b.store_id || "").trim();
-    if (!store_id) return res.status(400).json({ message: "Falta store_id" });
+    const code = String(b.code || "").trim();
+    const name = String(b.name || "").trim();
+    if (!store_id || !code || !name) {
+      return res.status(400).json({ message: "Faltan store_id, code o name" });
+    }
 
-    const code = String(b.code || `WEB_${Math.floor(Math.random() * 10000)}`);
-    const name = String(b.name || "Campaña sin nombre");
+    // Nuevos
+    const discount_type = (b.discount_type || "percent").toLowerCase(); // 'percent' o 'fixed'
+    const discount_value_num = Number(b.discount_value ?? 0);
 
-    // Campos NUEVOS
-    const discount_type = (b.discount_type || "percent").toLowerCase();
-    const discount_value = Number(b.discount_value ?? 0);
-    const valid_from = b.valid_from ? new Date(b.valid_from) : new Date(); // date
-    const valid_until = b.valid_until ? new Date(b.valid_until) : new Date(); // date
-    const apply_scope = b.apply_scope || "all";
-    const min_cart_amount = b.min_cart_amount != null ? Number(b.min_cart_amount) : 0;
+    // Mapear a legacy type ('percentage'|'absolute') según el CHECK
+    const type = discount_type === "percent" ? "percentage" : "absolute";
+
+    // Legacy value INTEGER NOT NULL: derivamos de discount_value
+    const value = Number.isFinite(discount_value_num)
+      ? Math.round(discount_value_num)
+      : 0;
+
+    // Fechas (YYYY-MM-DD)
+    const valid_from = b.valid_from || new Date().toISOString().slice(0, 10);
+    const valid_until = b.valid_until || new Date().toISOString().slice(0, 10);
+
+    const apply_scope = (b.apply_scope || "all").toString();
+
+    // Nuevos opcionales
+    const min_cart_amount =
+      b.min_cart_amount !== undefined ? Number(b.min_cart_amount) : 0;
     const max_discount_amount =
-      b.max_discount_amount != null ? Number(b.max_discount_amount) : null;
+      b.max_discount_amount !== undefined ? Number(b.max_discount_amount) : null;
     const monthly_cap_amount =
-      b.monthly_cap_amount != null ? Number(b.monthly_cap_amount) : null;
+      b.monthly_cap_amount !== undefined ? Number(b.monthly_cap_amount) : null;
     const exclude_sale_items = b.exclude_sale_items === true ? true : false;
 
-    // Campos LEGACY (la tabla todavía los tiene y son NOT NULL en parte)
-    const type = String(b.type || "coupon"); // si el INSERT lo incluye, que no vaya NULL
-    const value = Number(
-      b.value != null ? b.value : b.discount_value != null ? b.discount_value : 0
-    ); // <- si value es NOT NULL, mapeamos discount_value
-    const min_cart = b.min_cart != null ? Number(b.min_cart) : 0; // default
-    const monthly_cap = b.monthly_cap != null ? Number(b.monthly_cap) : 0; // default
-    const exclude_on_sale = b.exclude_on_sale != null ? !!b.exclude_on_sale : true; // default
+    // Legacy obligatorios con defaults
+    const min_cart = b.min_cart != null ? Number(b.min_cart) : 0;
+    const monthly_cap = b.monthly_cap != null ? Number(b.monthly_cap) : 0;
+    const exclude_on_sale = b.exclude_on_sale != null ? !!b.exclude_on_sale : false;
     const status = "active";
 
     const sql = `
@@ -201,21 +213,21 @@ app.post("/api/campaigns", async (req, res) => {
         $15, $16, $17,
         $18
       )
-      RETURNING id, code, name, store_id, created_at
+      RETURNING id, store_id, code, name, created_at
     `;
 
     const params = [
       store_id,
       name,
       code,
-      type,
-      value,
+      type, // 'percentage' | 'absolute'
+      value, // INTEGER
       min_cart,
       monthly_cap,
       exclude_on_sale,
       status,
-      discount_type,
-      discount_value,
+      discount_type, // 'percent' | 'fixed'
+      discount_value_num, // NUMERIC
       valid_from,
       valid_until,
       apply_scope,
@@ -229,17 +241,28 @@ app.post("/api/campaigns", async (req, res) => {
     return res.json({ ok: true, campaign: r.rows[0] });
   } catch (e) {
     console.error("POST /api/campaigns error:", e);
-    // devolvemos lo que tengamos para que lo veas en el navegador
-    return res
-      .status(500)
-      .json({ message: "Error al crear campaña", detail: e.detail || e.message });
+    if (e.code === "23505") {
+      return res.status(409).json({
+        message: "El código de campaña ya existe en esta tienda",
+        code: e.code,
+        constraint: e.constraint,
+      });
+    }
+    return res.status(500).json({
+      message: "Error al crear campaña",
+      code: e.code,
+      detail: e.detail,
+      column: e.column,
+      constraint: e.constraint,
+      hint: e.hint,
+    });
   }
 });
 
-/* ---------- DISCOUNTS CALLBACK / WEBHOOKS (placeholders) ---------- */
+// ---------------- Placeholders seguros ----------------
 app.post("/discounts/callback", (_req, res) => res.json({ discounts: [] }));
 app.post("/webhooks/orders/create", (_req, res) => res.sendStatus(200));
 
-/* ---------- START ---------- */
+// ---------------- Start ----------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
