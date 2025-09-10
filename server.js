@@ -1,4 +1,4 @@
-// server.js — App Merci Descuentos (OAuth + DB + endpoints base)
+// server.js — App Merci Descuentos (OAuth + Neon/Postgres + Admin mínimo)
 
 import express from "express";
 import dotenv from "dotenv";
@@ -6,9 +6,8 @@ import cookieSession from "cookie-session";
 import axios from "axios";
 import crypto from "crypto";
 import { URLSearchParams } from "url";
-import pool from "./db.js"; // ← conexión a Postgres (Neon)
+import pool from "./db.js"; // conexión a Neon/Postgres
 
-// Cargar .env
 dotenv.config();
 
 const app = express();
@@ -30,24 +29,25 @@ if (!APP_BASE_URL) console.warn("⚠️ Falta APP_BASE_URL en env");
 if (!TN_CLIENT_ID || !TN_CLIENT_SECRET) console.warn("⚠️ Falta TN_CLIENT_ID o TN_CLIENT_SECRET");
 
 // ------------------------------
-// Helpers DB (guardar / leer token)
+// Helpers DB (guardar / validar token)
 // ------------------------------
 async function saveStoreToken(store_id, access_token) {
   await pool.query(
     `INSERT INTO stores (store_id, access_token, updated_at)
      VALUES ($1, $2, NOW())
      ON CONFLICT (store_id)
-     DO UPDATE SET access_token = EXCLUDED.access_token, updated_at = NOW()`,
+     DO UPDATE SET access_token = EXCLUDED.access_token,
+                   updated_at = NOW()`,
     [String(store_id), String(access_token)]
   );
 }
 
-async function hasToken(store_id) {
-  const { rows } = await pool.query(
+async function tokenExists(store_id) {
+  const { rowCount } = await pool.query(
     "SELECT 1 FROM stores WHERE store_id = $1 LIMIT 1",
     [String(store_id)]
   );
-  return rows.length > 0;
+  return rowCount > 0;
 }
 
 // ------------------------------
@@ -130,7 +130,7 @@ app.get("/oauth/callback", async (req, res) => {
       return res.redirect(`/admin`);
     }
 
-    // Guardar token en DB (Neon)
+    // Guardar token en DB
     await saveStoreToken(sid, access_token);
 
     return res.redirect(`/admin?store_id=${sid}`);
@@ -145,11 +145,11 @@ app.get("/oauth/callback", async (req, res) => {
 // ------------------------------
 app.get("/admin", async (req, res) => {
   const { store_id } = req.query;
-  let tokenExists = false;
+  let hasToken = false;
 
   if (store_id) {
     try {
-      tokenExists = await hasToken(store_id);
+      hasToken = await tokenExists(store_id);
     } catch (e) {
       console.error("DB admin check error:", e.message);
     }
@@ -160,7 +160,7 @@ app.get("/admin", async (req, res) => {
 <html><head><meta charset="utf-8"><title>Cupones Merci</title></head>
 <body style="font-family:system-ui;padding:24px;max-width:960px;margin:auto">
   <h1>App instalada ${store_id ? `para la tienda: <code>${store_id}</code>` : ""}</h1>
-  <p>${tokenExists ? "Token guardado (DB) ✔️" : "Sin token o store_id. Instalá desde <code>/install?store_id=TU_TIENDA</code>"}</p>
+  <p>${hasToken ? "Token guardado (DB) ✔️" : "Sin token o store_id. Instalá desde <code>/install?store_id=TU_TIENDA</code>"}</p>
   <hr/>
   <p>Panel mínimo. Próximo paso: UI de campañas/cupones y Discount API.</p>
 </body></html>`);
