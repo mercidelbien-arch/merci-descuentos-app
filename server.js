@@ -36,43 +36,49 @@ app.get("/", (_req, res) => {
 // ----------------------------------------------------------------------------
 // 1) Instalación / OAuth (inicio)
 // ----------------------------------------------------------------------------
-app.get("/install", (req, res) => {
+app.get("/oauth/callback", async (req, res) => {
   try {
-    const { store_id } = req.query;
-    if (!store_id) return res.status(400).send("Falta store_id");
-    if (!TN_CLIENT_ID || !TN_CLIENT_SECRET || !APP_BASE_URL) {
-      return res
-        .status(500)
-        .send("Faltan variables de entorno (TN_CLIENT_ID, TN_CLIENT_SECRET, APP_BASE_URL)");
-    }
+    const { code, state } = req.query;
+    if (!code || !state) return res.status(400).send("Callback inválido");
+    if (state !== req.session.state) return res.status(400).send("Estado inválido");
 
     const redirect_uri = `${APP_BASE_URL}/oauth/callback`;
-    const state = crypto.randomBytes(12).toString("hex");
-    req.session.state = state;
 
-    // Scopes mínimos para lo que necesitamos ahora
-    const scopes = [
-      "read_products",
-      "write_discounts",
-      "read_orders",
-    ].join(",");
+    const form = new URLSearchParams();
+    form.append("client_id", TN_CLIENT_ID);
+    form.append("client_secret", TN_CLIENT_SECRET);
+    form.append("code", String(code));
+    form.append("grant_type", "authorization_code");
+    form.append("redirect_uri", redirect_uri);
 
-    // URL de autorización
-    // Nota: Tiendanube valida que redirect_uri coincida EXACTAMENTE con el configurado en Partners.
-    const authUrl =
-      `https://www.tiendanube.com/apps/${TN_CLIENT_ID}/authorize` +
-      `?response_type=code` +
-      `&client_id=${encodeURIComponent(TN_CLIENT_ID)}` +
-      `&redirect_uri=${encodeURIComponent(redirect_uri)}` +
-      `&state=${encodeURIComponent(state)}` +
-      `&scope=${encodeURIComponent(scopes)}`;
+    const tokenRes = await axios.post(
+      "https://www.tiendanube.com/apps/authorize/token",
+      form.toString(),
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+    );
 
-    return res.redirect(authUrl);
+    console.log("Token response:", tokenRes.data); // 👈 log para ver qué llega
+
+    const data = tokenRes.data || {};
+    const access_token = data.access_token;
+    const sid = String(data.store_id || data.user_id || "").trim();
+
+    if (!access_token) {
+      return res.status(400).send("No se recibió token (mirá logs en Render)");
+    }
+
+    if (!sid) {
+      return res.redirect(`/admin`);
+    }
+
+    stores.set(sid, { access_token });
+    return res.redirect(`/admin?store_id=${sid}`);
   } catch (e) {
-    console.error("Install error:", e);
-    return res.status(500).send("Error en /install");
+    console.error("OAuth callback error:", e.response?.data || e.message);
+    return res.status(500).send("Error en OAuth (mirá logs en Render)");
   }
 });
+
 
 // ----------------------------------------------------------------------------
 // 2) OAuth callback — canjea code por access_token (x-www-form-urlencoded)
