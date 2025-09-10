@@ -1,4 +1,4 @@
-// server.js — App Merci Descuentos (OAuth + DB + Campaigns API) — alineado con CHECK(type)
+// server.js — App Merci Descuentos (OAuth + DB + Campaigns API) — con UI mínima en /admin
 
 import express from "express";
 import dotenv from "dotenv";
@@ -6,7 +6,7 @@ import cookieSession from "cookie-session";
 import axios from "axios";
 import crypto from "crypto";
 import { URLSearchParams } from "url";
-import pool from "./db.js"; // tu conexión a Neon/Postgres (Pool)
+import pool from "./db.js";
 
 dotenv.config();
 
@@ -30,7 +30,6 @@ app.get("/", (_req, res) => res.send("OK"));
 app.get("/install", (req, res) => {
   const store_id = String(req.query.store_id || "").trim();
   if (!store_id) return res.status(400).send("Falta store_id");
-
   const state = crypto.randomBytes(16).toString("hex");
   req.session.state = state;
 
@@ -69,13 +68,8 @@ app.get("/oauth/callback", async (req, res) => {
     const data = tokenRes.data || {};
     const access_token = data.access_token;
     const sid = String(data.store_id || data.user_id || "").trim();
+    if (!access_token) return res.status(400).send("No se recibió token");
 
-    if (!access_token) {
-      console.error("Token sin access_token:", data);
-      return res.status(400).send("No se recibió token");
-    }
-
-    // Guardamos/actualizamos token
     await pool.query(
       `INSERT INTO stores (store_id, access_token)
        VALUES ($1, $2)
@@ -91,30 +85,209 @@ app.get("/oauth/callback", async (req, res) => {
   }
 });
 
-// ---------------- Admin mínimo ----------------
+// ---------------- Admin con formulario ----------------
 app.get("/admin", async (req, res) => {
-  const { store_id } = req.query;
-  let hasToken = false;
-
-  if (store_id) {
-    const r = await pool.query(`SELECT 1 FROM stores WHERE store_id=$1`, [String(store_id)]);
-    hasToken = r.rowCount > 0;
-  }
-
+  const store_id = String(req.query.store_id || "").trim();
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.end(`<!doctype html>
-<html><head><meta charset="utf-8"><title>Cupones Merci</title></head>
-<body style="font-family:system-ui;padding:24px;max-width:960px;margin:auto">
-  <h1>App instalada ${store_id ? `para la tienda: <code>${store_id}</code>` : ""}</h1>
-  <p>${hasToken ? "Token guardado (DB) ✔️" : "Sin token. Instalá desde <code>/install?store_id=TU_TIENDA</code>"} </p>
-  <hr/>
-  <p>Panel mínimo. Próximo paso: UI de campañas/cupones y Discount API.</p>
-</body></html>`);
+  return res.end(`<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<title>Cupones Merci</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;padding:24px;max-width:980px;margin:auto;background:#fafafa;color:#111}
+  h1{margin:0 0 8px}
+  .card{background:#fff;border:1px solid #eee;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:16px;margin:16px 0}
+  label{display:block;font-size:12px;color:#555;margin-top:10px}
+  input,select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;margin-top:6px}
+  .row{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .row3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  button{background:#111;color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{border-bottom:1px solid #eee;text-align:left;padding:8px}
+  .muted{color:#666}
+</style>
+</head>
+<body>
+  <h1>Cupones Merci ${store_id ? `— <small class="muted">Tienda <code>${store_id}</code></small>` : ""}</h1>
+  <p class="muted">Creá y listá campañas sin consola.</p>
+
+  <div class="card">
+    <h3>Nueva campaña</h3>
+    <form id="f">
+      <div class="row">
+        <div>
+          <label>Store ID</label>
+          <input name="store_id" value="${store_id || ""}" required />
+        </div>
+        <div>
+          <label>Código (lo que ingresa el cliente)</label>
+          <input name="code" placeholder="EJ: GIMNASIO10" required />
+        </div>
+      </div>
+
+      <label>Nombre interno</label>
+      <input name="name" placeholder="EJ: Convenio Gimnasios 10%" required />
+
+      <div class="row">
+        <div>
+          <label>Tipo de descuento</label>
+          <select name="discount_type">
+            <option value="percent" selected>%</option>
+            <option value="fixed">Monto fijo</option>
+          </select>
+        </div>
+        <div>
+          <label>Valor del descuento</label>
+          <input name="discount_value" type="number" step="1" value="10" required />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Vigencia desde</label>
+          <input name="valid_from" type="date" required />
+        </div>
+        <div>
+          <label>Vigencia hasta</label>
+          <input name="valid_until" type="date" required />
+        </div>
+      </div>
+
+      <div class="row3">
+        <div>
+          <label>Ámbito</label>
+          <select name="apply_scope">
+            <option value="all" selected>Toda la tienda</option>
+            <option value="categories">Categorías</option>
+            <option value="products">Productos</option>
+          </select>
+        </div>
+        <div>
+          <label>Mínimo carrito</label>
+          <input name="min_cart_amount" type="number" step="1" value="0" />
+        </div>
+        <div>
+          <label>Excluir productos en oferta</label>
+          <select name="exclude_sale_items">
+            <option value="false" selected>No</option>
+            <option value="true">Sí</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:10px">
+        <button type="submit">Crear campaña</button>
+        <button type="button" id="reload">Actualizar lista</button>
+      </div>
+    </form>
+    <div id="msg" class="muted" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <h3>Campañas existentes</h3>
+    <div id="list" class="muted">Cargando…</div>
+  </div>
+
+<script>
+const $ = (s, el=document) => el.querySelector(s);
+
+function toBool(v){ return String(v) === 'true'; }
+
+function formToPayload(form){
+  const fd = new FormData(form);
+  return {
+    store_id: fd.get('store_id'),
+    code: fd.get('code'),
+    name: fd.get('name'),
+    discount_type: fd.get('discount_type'),
+    discount_value: Number(fd.get('discount_value')),
+    valid_from: fd.get('valid_from'),
+    valid_until: fd.get('valid_until'),
+    apply_scope: fd.get('apply_scope'),
+    min_cart_amount: Number(fd.get('min_cart_amount') || 0),
+    exclude_sale_items: toBool(fd.get('exclude_sale_items'))
+  };
+}
+
+async function createCampaign(payload){
+  const r = await fetch('/api/campaigns', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await r.json();
+  if(!r.ok) throw data;
+  return data;
+}
+
+async function listCampaigns(store_id){
+  const r = await fetch('/api/campaigns?store_id=' + encodeURIComponent(store_id));
+  const data = await r.json();
+  return data;
+}
+
+function renderList(rows){
+  if(!rows || rows.length === 0){
+    $('#list').innerHTML = '<p class="muted">No hay campañas.</p>';
+    return;
+  }
+  $('#list').innerHTML = \`
+    <table>
+      <thead><tr>
+        <th>Nombre</th><th>Código</th><th>Tipo</th><th>Valor</th><th>Vigencia</th>
+      </tr></thead>
+      <tbody>
+        \${rows.map(r => \`
+          <tr>
+            <td>\${r.name}</td>
+            <td><code>\${r.code}</code></td>
+            <td>\${r.discount_type}</td>
+            <td>\${r.discount_type === 'percent' ? (r.discount_value + '%') : ('$' + r.discount_value)}</td>
+            <td>\${r.valid_from} → \${r.valid_until}</td>
+          </tr>\`).join('')}
+      </tbody>
+    </table>\`;
+}
+
+async function refresh(){
+  const sid = $('input[name=store_id]').value.trim();
+  if(!sid){ $('#list').innerHTML = '<p class="muted">Ingresá Store ID arriba.</p>'; return; }
+  $('#list').textContent = 'Cargando…';
+  try{
+    const data = await listCampaigns(sid);
+    renderList(data);
+  }catch(e){
+    $('#list').innerHTML = '<p class="muted">Error cargando campañas.</p>';
+    console.error(e);
+  }
+}
+
+$('#f').addEventListener('submit', async (ev)=>{
+  ev.preventDefault();
+  $('#msg').textContent = 'Creando…';
+  try{
+    const payload = formToPayload(ev.target);
+    await createCampaign(payload);
+    $('#msg').textContent = 'Campaña creada ✅';
+    ev.target.reset();
+    $('input[name=store_id]').value = '${store_id || ""}';
+    await refresh();
+  }catch(e){
+    $('#msg').textContent = 'Error: ' + (e.detail || e.message || 'No se pudo crear');
+    console.error(e);
+  }
+});
+
+$('#reload').addEventListener('click', refresh);
+window.addEventListener('load', refresh);
+</script>
+</body>
+</html>`);
 });
 
 // ---------------- API Campaigns ----------------
-
-// GET /api/campaigns?store_id=XXXX
 app.get("/api/campaigns", async (req, res) => {
   try {
     const store_id = String(req.query.store_id || "").trim();
@@ -141,12 +314,10 @@ app.get("/api/campaigns", async (req, res) => {
   }
 });
 
-// POST /api/campaigns
+// POST /api/campaigns (mapea a columnas legacy y nuevas)
 app.post("/api/campaigns", async (req, res) => {
   try {
     const b = req.body || {};
-
-    // Requeridos mínimos
     const store_id = String(b.store_id || "").trim();
     const code = String(b.code || "").trim();
     const name = String(b.name || "").trim();
@@ -154,31 +325,18 @@ app.post("/api/campaigns", async (req, res) => {
       return res.status(400).json({ message: "Faltan store_id, code o name" });
     }
 
-    // Nuevos
-    const discount_type = (b.discount_type || "percent").toLowerCase(); // 'percent' o 'fixed'
+    const discount_type = (b.discount_type || "percent").toLowerCase(); // 'percent'|'fixed'
     const discount_value_num = Number(b.discount_value ?? 0);
+    const type = discount_type === "percent" ? "percentage" : "absolute"; // cumple CHECK
+    const value = Number.isFinite(discount_value_num) ? Math.round(discount_value_num) : 0;
 
-    // Mapear a legacy type ('percentage'|'absolute') según el CHECK
-    const type = discount_type === "percent" ? "percentage" : "absolute";
-
-    // Legacy value INTEGER NOT NULL: derivamos de discount_value
-    const value = Number.isFinite(discount_value_num)
-      ? Math.round(discount_value_num)
-      : 0;
-
-    // Fechas (YYYY-MM-DD)
-    const valid_from = b.valid_from || new Date().toISOString().slice(0, 10);
-    const valid_until = b.valid_until || new Date().toISOString().slice(0, 10);
-
+    const valid_from = b.valid_from || new Date().toISOString().slice(0,10);
+    const valid_until = b.valid_until || new Date().toISOString().slice(0,10);
     const apply_scope = (b.apply_scope || "all").toString();
 
-    // Nuevos opcionales
-    const min_cart_amount =
-      b.min_cart_amount !== undefined ? Number(b.min_cart_amount) : 0;
-    const max_discount_amount =
-      b.max_discount_amount !== undefined ? Number(b.max_discount_amount) : null;
-    const monthly_cap_amount =
-      b.monthly_cap_amount !== undefined ? Number(b.monthly_cap_amount) : null;
+    const min_cart_amount = b.min_cart_amount !== undefined ? Number(b.min_cart_amount) : 0;
+    const max_discount_amount = b.max_discount_amount !== undefined ? Number(b.max_discount_amount) : null;
+    const monthly_cap_amount = b.monthly_cap_amount !== undefined ? Number(b.monthly_cap_amount) : null;
     const exclude_sale_items = b.exclude_sale_items === true ? true : false;
 
     // Legacy obligatorios con defaults
@@ -220,14 +378,14 @@ app.post("/api/campaigns", async (req, res) => {
       store_id,
       name,
       code,
-      type, // 'percentage' | 'absolute'
-      value, // INTEGER
+      type,
+      value,
       min_cart,
       monthly_cap,
       exclude_on_sale,
       status,
-      discount_type, // 'percent' | 'fixed'
-      discount_value_num, // NUMERIC
+      discount_type,
+      discount_value_num,
       valid_from,
       valid_until,
       apply_scope,
@@ -265,4 +423,4 @@ app.post("/webhooks/orders/create", (_req, res) => res.sendStatus(200));
 
 // ---------------- Start ----------------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(\`Server on http://localhost:\${PORT}\`));
