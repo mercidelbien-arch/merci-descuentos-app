@@ -4,7 +4,6 @@ import express from "express";
 import dotenv from "dotenv";
 import cookieSession from "cookie-session";
 import axios from "axios";
-import crypto from "crypto";
 import { URLSearchParams } from "url";
 import pool from "./db.js"; // conexión a Neon/Postgres
 
@@ -186,6 +185,9 @@ app.post("/api/campaigns", async (req, res) => {
       store_id,
       code,
       name,
+      // 👇 NUEVO: campaign type (por defecto 'coupon')
+      type = "coupon",
+
       discount_type,
       discount_value,
       max_uses_per_coupon,
@@ -206,7 +208,7 @@ app.post("/api/campaigns", async (req, res) => {
 
     const { rows } = await pool.query(
       `INSERT INTO campaigns (
-         store_id, code, name, status,
+         store_id, code, name, status, type,
          discount_type, discount_value,
          max_uses_per_coupon, max_uses_per_customer,
          valid_from, valid_until,
@@ -214,12 +216,12 @@ app.post("/api/campaigns", async (req, res) => {
          monthly_cap_amount, exclude_sale_items
        )
        VALUES (
-         $1,$2,$3,$4,
-         $5,$6,
-         $7,$8,
-         $9,$10,
-         $11,$12,$13,
-         $14,$15
+         $1,$2,$3,$4,$5,
+         $6,$7,
+         $8,$9,
+         $10,$11,
+         $12,$13,$14,
+         $15,$16
        )
        RETURNING *`,
       [
@@ -227,6 +229,7 @@ app.post("/api/campaigns", async (req, res) => {
         String(code),
         String(name),
         String(status),
+        String(type),                 // 👈 ahora enviamos type
         String(discount_type),
         Number(discount_value),
         max_uses_per_coupon ?? null,
@@ -243,13 +246,10 @@ app.post("/api/campaigns", async (req, res) => {
 
     return res.json(rows[0]);
   } catch (e) {
-    // 🔎 DIAGNÓSTICO DETALLADO
     console.error("POST /api/campaigns error:", e);
     if (e.code === "23505") {
-      // unique_violation
       return res.status(409).json({ message: "El código de campaña ya existe en esta tienda", code: e.code });
     }
-    // devolvemos todo lo útil para ver el motivo exacto
     return res.status(500).json({
       message: "Error al crear campaña",
       code: e.code,
