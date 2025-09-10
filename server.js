@@ -1,4 +1,4 @@
-// server.js — App Merci Descuentos (OAuth + DB + Campaigns API) — con UI mínima en /admin
+// server.js — App Merci Descuentos (TN OAuth + Neon + Campañas c/ categorías)
 
 import express from "express";
 import dotenv from "dotenv";
@@ -30,6 +30,7 @@ app.get("/", (_req, res) => res.send("OK"));
 app.get("/install", (req, res) => {
   const store_id = String(req.query.store_id || "").trim();
   if (!store_id) return res.status(400).send("Falta store_id");
+
   const state = crypto.randomBytes(16).toString("hex");
   req.session.state = state;
 
@@ -40,7 +41,7 @@ app.get("/install", (req, res) => {
     `&redirect_uri=${encodeURIComponent(redirect_uri)}` +
     `&state=${encodeURIComponent(state)}` +
     `&response_type=code` +
-    `&scope=read_products,write_discounts,read_discounts`;
+    `&scope=read_products,read_categories,write_discounts,read_discounts`;
 
   res.redirect(url);
 });
@@ -85,6 +86,45 @@ app.get("/oauth/callback", async (req, res) => {
   }
 });
 
+// ---------------- API Tiendanube: categorías ----------------
+app.get("/api/tn/categories", async (req, res) => {
+  try {
+    const store_id = String(req.query.store_id || "").trim();
+    if (!store_id) return res.status(400).json({ message: "Falta store_id" });
+
+    const r = await pool.query(
+      "SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1",
+      [store_id]
+    );
+    if (r.rowCount === 0) {
+      return res.status(401).json({ message: "No hay token para esa tienda" });
+    }
+    const token = r.rows[0].access_token;
+
+    // Tiendanube: Authentication: bearer <token>  + User-Agent obligatorio
+    const resp = await axios.get(`https://api.tiendanube.com/v1/${store_id}/categories`, {
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Merci Descuentos (contacto@merci.com)", // poné tu email o dominio
+        "Authentication": `bearer ${token}`
+      },
+      params: { per_page: 250 }
+    });
+
+    // Normalizar nombre según idioma
+    const cats = (resp.data || []).map(c => ({
+      id: c.id,
+      name: c.name?.es || c.name?.pt || c.name?.en || String(c.id)
+    }));
+
+    return res.json(cats);
+  } catch (e) {
+    console.error("GET /api/tn/categories error:", e.response?.data || e.message);
+    const status = e.response?.status || 500;
+    return res.status(status).json({ message: "Error obteniendo categorías", detail: e.response?.data || e.message });
+  }
+});
+
 // ---------------- Admin con formulario ----------------
 app.get("/admin", async (req, res) => {
   const store_id = String(req.query.store_id || "").trim();
@@ -100,18 +140,19 @@ app.get("/admin", async (req, res) => {
   h1{margin:0 0 8px}
   .card{background:#fff;border:1px solid #eee;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:16px;margin:16px 0}
   label{display:block;font-size:12px;color:#555;margin-top:10px}
-  input,select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;margin-top:6px}
+  input,select,textarea{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;margin-top:6px}
   .row{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
   .row3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
   button{background:#111;color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}
   table{width:100%;border-collapse:collapse;margin-top:12px}
   th,td{border-bottom:1px solid #eee;text-align:left;padding:8px}
   .muted{color:#666}
+  .multi{min-height:120px}
 </style>
 </head>
 <body>
-  <h1>Cupones Merci ${store_id ? `— <small class="muted">Tienda <code>${store_id}</code></small>` : ""}</h1>
-  <p class="muted">Creá y listá campañas sin consola.</p>
+  <h1>Cupones Merci ${store_id ? \`— <small class="muted">Tienda <code>\${store_id}</code></small>\` : ""}</h1>
+  <p class="muted">Crear y segmentar campañas por categorías.</p>
 
   <div class="card">
     <h3>Nueva campaña</h3>
@@ -122,7 +163,7 @@ app.get("/admin", async (req, res) => {
           <input name="store_id" value="${store_id || ""}" required />
         </div>
         <div>
-          <label>Código (lo que ingresa el cliente)</label>
+          <label>Código del cupón</label>
           <input name="code" placeholder="EJ: GIMNASIO10" required />
         </div>
       </div>
@@ -139,7 +180,7 @@ app.get("/admin", async (req, res) => {
           </select>
         </div>
         <div>
-          <label>Valor del descuento</label>
+          <label>Valor</label>
           <input name="discount_value" type="number" step="1" value="10" required />
         </div>
       </div>
@@ -158,10 +199,10 @@ app.get("/admin", async (req, res) => {
       <div class="row3">
         <div>
           <label>Ámbito</label>
-          <select name="apply_scope">
+          <select name="apply_scope" id="apply_scope">
             <option value="all" selected>Toda la tienda</option>
-            <option value="categories">Categorías</option>
-            <option value="products">Productos</option>
+            <option value="categories">Categorías incluidas</option>
+            <option value="products">Productos (próximo)</option>
           </select>
         </div>
         <div>
@@ -175,6 +216,14 @@ app.get("/admin", async (req, res) => {
             <option value="true">Sí</option>
           </select>
         </div>
+      </div>
+
+      <div id="cats_block" style="display:none">
+        <label>Categorías para incluir (Ctrl/Cmd + clic para múltiples)</label>
+        <select id="include_categories" class="multi" multiple></select>
+
+        <label style="margin-top:12px">Categorías a excluir</label>
+        <select id="exclude_categories" class="multi" multiple></select>
       </div>
 
       <div style="margin-top:12px;display:flex;gap:10px">
@@ -195,9 +244,13 @@ const $ = (s, el=document) => el.querySelector(s);
 
 function toBool(v){ return String(v) === 'true'; }
 
+function selectedIds(sel){
+  return Array.from(sel.selectedOptions).map(o => Number(o.value));
+}
+
 function formToPayload(form){
   const fd = new FormData(form);
-  return {
+  const payload = {
     store_id: fd.get('store_id'),
     code: fd.get('code'),
     name: fd.get('name'),
@@ -209,24 +262,16 @@ function formToPayload(form){
     min_cart_amount: Number(fd.get('min_cart_amount') || 0),
     exclude_sale_items: toBool(fd.get('exclude_sale_items'))
   };
+  if (payload.apply_scope === 'categories') {
+    payload.include_category_ids = selectedIds($('#include_categories'));
+    payload.exclude_category_ids = selectedIds($('#exclude_categories'));
+  }
+  return payload;
 }
 
-async function createCampaign(payload){
-  const r = await fetch('/api/campaigns', {
-    method: 'POST',
-    headers: { 'Content-Type':'application/json' },
-    body: JSON.stringify(payload)
-  });
-  const data = await r.json();
-  if(!r.ok) throw data;
-  return data;
-}
-
-async function listCampaigns(store_id){
-  const r = await fetch('/api/campaigns?store_id=' + encodeURIComponent(store_id));
-  const data = await r.json();
-  return data;
-}
+async function api(path, opts){ const r = await fetch(path, opts); const d = await r.json(); if(!r.ok) throw d; return d; }
+const listCampaigns = (sid) => api('/api/campaigns?store_id='+encodeURIComponent(sid));
+const fetchCategories = (sid) => api('/api/tn/categories?store_id='+encodeURIComponent(sid));
 
 function renderList(rows){
   if(!rows || rows.length === 0){
@@ -236,7 +281,7 @@ function renderList(rows){
   $('#list').innerHTML = \`
     <table>
       <thead><tr>
-        <th>Nombre</th><th>Código</th><th>Tipo</th><th>Valor</th><th>Vigencia</th>
+        <th>Nombre</th><th>Código</th><th>Tipo</th><th>Valor</th><th>Ámbito</th><th>Vigencia</th>
       </tr></thead>
       <tbody>
         \${rows.map(r => \`
@@ -245,6 +290,7 @@ function renderList(rows){
             <td><code>\${r.code}</code></td>
             <td>\${r.discount_type}</td>
             <td>\${r.discount_type === 'percent' ? (r.discount_value + '%') : ('$' + r.discount_value)}</td>
+            <td>\${r.apply_scope}</td>
             <td>\${r.valid_from} → \${r.valid_until}</td>
           </tr>\`).join('')}
       </tbody>
@@ -264,15 +310,41 @@ async function refresh(){
   }
 }
 
+async function maybeLoadCats(){
+  const scope = $('#apply_scope').value;
+  const block = $('#cats_block');
+  if(scope !== 'categories'){
+    block.style.display = 'none';
+    return;
+  }
+  block.style.display = 'block';
+  const sid = $('input[name=store_id]').value.trim();
+  if(!sid){ $('#msg').textContent = 'Ingresá Store ID para cargar categorías'; return; }
+  $('#msg').textContent = 'Cargando categorías…';
+  try{
+    const cats = await fetchCategories(sid);
+    const inc = $('#include_categories'), exc = $('#exclude_categories');
+    inc.innerHTML = cats.map(c => \`<option value="\${c.id}">\${c.name}</option>\`).join('');
+    exc.innerHTML = cats.map(c => \`<option value="\${c.id}">\${c.name}</option>\`).join('');
+    $('#msg').textContent = '';
+  }catch(e){
+    console.error(e);
+    $('#msg').textContent = 'No se pudieron cargar categorías';
+  }
+}
+
+$('#apply_scope').addEventListener('change', maybeLoadCats);
 $('#f').addEventListener('submit', async (ev)=>{
   ev.preventDefault();
   $('#msg').textContent = 'Creando…';
   try{
     const payload = formToPayload(ev.target);
-    await createCampaign(payload);
+    await api('/api/campaigns', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
     $('#msg').textContent = 'Campaña creada ✅';
-    ev.target.reset();
-    $('input[name=store_id]').value = '${store_id || ""}';
     await refresh();
   }catch(e){
     $('#msg').textContent = 'Error: ' + (e.detail || e.message || 'No se pudo crear');
@@ -281,18 +353,17 @@ $('#f').addEventListener('submit', async (ev)=>{
 });
 
 $('#reload').addEventListener('click', refresh);
-window.addEventListener('load', refresh);
+window.addEventListener('load', () => { refresh(); });
 </script>
 </body>
 </html>`);
 });
 
-// ---------------- API Campaigns ----------------
+// ---------------- API: listar campañas ----------------
 app.get("/api/campaigns", async (req, res) => {
   try {
     const store_id = String(req.query.store_id || "").trim();
     if (!store_id) return res.json([]);
-
     const { rows } = await pool.query(
       `SELECT id, store_id, code, name, status,
               discount_type, discount_value,
@@ -306,18 +377,18 @@ app.get("/api/campaigns", async (req, res) => {
         ORDER BY created_at DESC`,
       [store_id]
     );
-
     res.json(rows);
   } catch (err) {
-    console.error("Error obteniendo campañas:", err);
+    console.error("GET /api/campaigns error:", err);
     res.status(500).json({ message: "Error al obtener campañas" });
   }
 });
 
-// POST /api/campaigns (mapea a columnas legacy y nuevas)
+// ---------------- API: crear campaña ----------------
 app.post("/api/campaigns", async (req, res) => {
   try {
     const b = req.body || {};
+
     const store_id = String(b.store_id || "").trim();
     const code = String(b.code || "").trim();
     const name = String(b.name || "").trim();
@@ -325,9 +396,12 @@ app.post("/api/campaigns", async (req, res) => {
       return res.status(400).json({ message: "Faltan store_id, code o name" });
     }
 
-    const discount_type = (b.discount_type || "percent").toLowerCase(); // 'percent'|'fixed'
+    const discount_type = (b.discount_type || "percent").toLowerCase(); // 'percent' | 'fixed'
     const discount_value_num = Number(b.discount_value ?? 0);
-    const type = discount_type === "percent" ? "percentage" : "absolute"; // cumple CHECK
+
+    // Cumplir CHECK(type): 'percentage' | 'absolute'
+    const type = discount_type === "percent" ? "percentage" : "absolute";
+    // Legacy 'value' (INTEGER NOT NULL)
     const value = Number.isFinite(discount_value_num) ? Math.round(discount_value_num) : 0;
 
     const valid_from = b.valid_from || new Date().toISOString().slice(0,10);
@@ -338,6 +412,12 @@ app.post("/api/campaigns", async (req, res) => {
     const max_discount_amount = b.max_discount_amount !== undefined ? Number(b.max_discount_amount) : null;
     const monthly_cap_amount = b.monthly_cap_amount !== undefined ? Number(b.monthly_cap_amount) : null;
     const exclude_sale_items = b.exclude_sale_items === true ? true : false;
+
+    // Nuevos campos de segmentación
+    const include_category_ids = Array.isArray(b.include_category_ids) ? b.include_category_ids : null;
+    const exclude_category_ids = Array.isArray(b.exclude_category_ids) ? b.exclude_category_ids : null;
+    const include_product_ids  = Array.isArray(b.include_product_ids)  ? b.include_product_ids  : null;
+    const exclude_product_ids  = Array.isArray(b.exclude_product_ids)  ? b.exclude_product_ids  : null;
 
     // Legacy obligatorios con defaults
     const min_cart = b.min_cart != null ? Number(b.min_cart) : 0;
@@ -357,7 +437,9 @@ app.post("/api/campaigns", async (req, res) => {
         max_uses_per_coupon, max_uses_per_customer,
         valid_from, valid_until, apply_scope,
         min_cart_amount, max_discount_amount, monthly_cap_amount,
-        exclude_sale_items
+        exclude_sale_items,
+        include_category_ids, exclude_category_ids,
+        include_product_ids,  exclude_product_ids
       ) VALUES (
         gen_random_uuid(),
         $1, $2, $3,
@@ -369,7 +451,8 @@ app.post("/api/campaigns", async (req, res) => {
         NULL, NULL,
         $12, $13, $14,
         $15, $16, $17,
-        $18
+        $18, $19,
+        $20, $21
       )
       RETURNING id, store_id, code, name, created_at
     `;
@@ -393,6 +476,10 @@ app.post("/api/campaigns", async (req, res) => {
       max_discount_amount,
       monthly_cap_amount,
       exclude_sale_items,
+      include_category_ids,
+      exclude_category_ids,
+      include_product_ids,
+      exclude_product_ids
     ];
 
     const r = await pool.query(sql, params);
@@ -423,4 +510,5 @@ app.post("/webhooks/orders/create", (_req, res) => res.sendStatus(200));
 
 // ---------------- Start ----------------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
+// Escribila a mano si tu editor mete comillas raras
+app.listen(PORT, () => console.log('Server on http://localhost:' + PORT));
