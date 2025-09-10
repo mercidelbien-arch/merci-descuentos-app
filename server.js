@@ -1,4 +1,4 @@
-// server.js — App Merci Descuentos (MVP OAuth + endpoints base)
+// server.js — App Merci Descuentos (OAuth + DB + endpoints base)
 
 import express from "express";
 import dotenv from "dotenv";
@@ -6,11 +6,13 @@ import cookieSession from "cookie-session";
 import axios from "axios";
 import crypto from "crypto";
 import { URLSearchParams } from "url";
+import pool from "./db.js"; // ← conexión a Postgres (Neon)
 
+// Cargar .env
 dotenv.config();
 
 const app = express();
-app.set("trust proxy", 1); // para que la cookie de sesión funcione detrás de Render
+app.set("trust proxy", 1); // cookies detrás de proxy (Render)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(
@@ -24,18 +26,40 @@ app.use(
 
 // ENV requeridas
 const { TN_CLIENT_ID, TN_CLIENT_SECRET, APP_BASE_URL } = process.env;
+if (!APP_BASE_URL) console.warn("⚠️ Falta APP_BASE_URL en env");
+if (!TN_CLIENT_ID || !TN_CLIENT_SECRET) console.warn("⚠️ Falta TN_CLIENT_ID o TN_CLIENT_SECRET");
 
-// Almacenamos en memoria para probar rápido (luego Postgres)
-const stores = new Map(); // store_id -> { access_token }
+// ------------------------------
+// Helpers DB (guardar / leer token)
+// ------------------------------
+async function saveStoreToken(store_id, access_token) {
+  await pool.query(
+    `INSERT INTO stores (store_id, access_token, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (store_id)
+     DO UPDATE SET access_token = EXCLUDED.access_token, updated_at = NOW()`,
+    [String(store_id), String(access_token)]
+  );
+}
 
+async function hasToken(store_id) {
+  const { rows } = await pool.query(
+    "SELECT 1 FROM stores WHERE store_id = $1 LIMIT 1",
+    [String(store_id)]
+  );
+  return rows.length > 0;
+}
+
+// ------------------------------
 // Salud
+// ------------------------------
 app.get("/", (_req, res) => {
   res.send("OK");
 });
 
-// ---------------------------------------------------------------------------
-// 1) Instalación / OAuth (inicio)  ✅ ESTA ES LA RUTA QUE FALTABA
-// ---------------------------------------------------------------------------
+// ------------------------------
+// 1) Instalación / OAuth (inicio)
+// ------------------------------
 app.get("/install", (req, res) => {
   try {
     const { store_id } = req.query;
@@ -67,10 +91,9 @@ app.get("/install", (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// 2) OAuth callback — canjea code por access_token (x-www-form-urlencoded)
-//    (SOLO UNA VEZ; ELIMINAMOS DUPLICADO)
-// ---------------------------------------------------------------------------
+// ------------------------------
+// 2) OAuth callback — token x-www-form-urlencoded
+// ------------------------------
 app.get("/oauth/callback", async (req, res) => {
   try {
     const { code, state } = req.query;
@@ -96,17 +119,20 @@ app.get("/oauth/callback", async (req, res) => {
 
     const data = tokenRes.data || {};
     const access_token = data.access_token;
-    const sid = String(data.store_id || data.user_id || "").trim();
+    const sid = String(data.store_id || data.user_id || "").trim(); // algunos entornos devuelven user_id
 
     if (!access_token) {
       return res.status(400).send("No se recibió token (mirá logs en Render)");
     }
 
     if (!sid) {
+      console.warn("⚠️ No vino store_id/user_id. Redirigiendo a /admin genérico.");
       return res.redirect(`/admin`);
     }
 
-    stores.set(sid, { access_token });
+    // Guardar token en DB (Neon)
+    await saveStoreToken(sid, access_token);
+
     return res.redirect(`/admin?store_id=${sid}`);
   } catch (e) {
     console.error("OAuth callback error:", e.response?.data || e.message);
@@ -114,35 +140,45 @@ app.get("/oauth/callback", async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// 3) Admin mínimo (placeholder)
-// ---------------------------------------------------------------------------
-app.get("/admin", (req, res) => {
+// ------------------------------
+// 3) Admin mínimo (lee estado desde DB)
+// ------------------------------
+app.get("/admin", async (req, res) => {
   const { store_id } = req.query;
-  const hasStore = store_id && stores.has(String(store_id));
+  let tokenExists = false;
+
+  if (store_id) {
+    try {
+      tokenExists = await hasToken(store_id);
+    } catch (e) {
+      console.error("DB admin check error:", e.message);
+    }
+  }
+
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.end(`<!doctype html>
 <html><head><meta charset="utf-8"><title>Cupones Merci</title></head>
 <body style="font-family:system-ui;padding:24px;max-width:960px;margin:auto">
   <h1>App instalada ${store_id ? `para la tienda: <code>${store_id}</code>` : ""}</h1>
-  <p>${hasStore ? "Token guardado en memoria ✔️" : "Sin token o store_id. Instalá desde <code>/install?store_id=TU_TIENDA</code>"}</p>
+  <p>${tokenExists ? "Token guardado (DB) ✔️" : "Sin token o store_id. Instalá desde <code>/install?store_id=TU_TIENDA</code>"}</p>
   <hr/>
-  <p>Panel mínimo. Próximo paso: UI de campañas, conexión a Postgres y Discount API.</p>
+  <p>Panel mínimo. Próximo paso: UI de campañas/cupones y Discount API.</p>
 </body></html>`);
 });
 
-// ---------------------------------------------------------------------------
+// ------------------------------
 // 4) Endpoints base (placeholders seguros)
-// ---------------------------------------------------------------------------
+// ------------------------------
 app.post("/discounts/callback", (_req, res) => {
+  // MVP: no aplicamos descuentos aún
   return res.json({ discounts: [] });
 });
 
 app.post("/webhooks/orders/create", (_req, res) => {
+  // ACK inmediato
   return res.sendStatus(200);
 });
 
-// ---------------------------------------------------------------------------
-
+// ------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
