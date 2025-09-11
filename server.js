@@ -8,6 +8,8 @@ import crypto from "crypto";
 import "dotenv/config";      // única carga de variables .env
 import { Pool } from "pg";
 
+const PROMO_ID = process.env.TN_PROMO_ID || "1c508de3-84a0-4414-9c75-c2aee4814fcd";
+
 // -------------------- DB (Neon) --------------------
 const { DATABASE_URL } = process.env;
 let pool = null;
@@ -645,7 +647,6 @@ app.post("/discounts/callback", async (req, res) => {
     const body = req.body || {};
     const store_id = String(body.store_id || "").trim();
     const coupons = Array.isArray(body.coupons) ? body.coupons : [];
-    const PROMO_ID = "1c508de3-84a0-4414-9c75-c2aee4814fcd"; // id real de la promo base
 
     // Si no hay cupón -> borrar descuento previo
     if (!store_id || coupons.length === 0) {
@@ -749,7 +750,7 @@ app.post("/discounts/callback", async (req, res) => {
     console.error("discounts/callback error:", e);
     // ante error, eliminar descuento para no dejarlo pegado
     return res.json({
-      commands: [{ command: "delete_discount", specs: { promotion_id: "1c508de3-84a0-4414-9c75-c2aee4814fcd" } }]
+      commands: [{ command: "delete_discount", specs: {promotion_id: PROMO_ID} }]
     });
   }
 });
