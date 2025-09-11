@@ -119,11 +119,8 @@ app.get("/api/db/migrate", async (_req, res) => {
 // Raíz simple
 app.get("/", (_req, res) => res.send("OK"));
 
-// -------------------- Install/OAuth --------------------
+// -------------------- Install/OAuth (sin pedir store_id) --------------------
 app.get("/install", (req, res) => {
-  const store_id = String(req.query.store_id || "").trim();
-  if (!store_id) return res.status(400).send("Falta store_id");
-
   const state = crypto.randomBytes(16).toString("hex");
   req.session.state = state;
 
