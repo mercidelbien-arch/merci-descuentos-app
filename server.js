@@ -648,7 +648,7 @@ app.post("/discounts/callback", async (req, res) => {
     if (upperCoupons.includes("PRUEBA10")) {
       console.log("SMOKE CALLBACK BODY:", JSON.stringify(body).slice(0, 2000));
       const currency = body.currency || "ARS";
-      const promotion_id = `merci-${store_id}-PRUEBA10`;
+      const promotion_id = "1c508de3-84a0-4414-9c75-c2aee4814fcd";
       return res.json({
         commands: [{
           command: "create_or_update_discount",
@@ -729,7 +729,7 @@ app.post("/discounts/callback", async (req, res) => {
     if (!Number.isFinite(amount) || amount <= 0) return res.sendStatus(204);
 
     const currency = body.currency || 'ARS';
-    const promotion_id = `merci-${store_id}-${code}`;
+    const promotion_id = "1c508de3-84a0-4414-9c75-c2aee4814fcd";
     return res.json({
       commands: [{
         command: "create_or_update_discount",
