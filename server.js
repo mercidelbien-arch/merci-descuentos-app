@@ -1,10 +1,15 @@
-import dotenv from 'dotenv';
-import { Pool } from 'pg';
-dotenv.config();
+// server.js — App Merci Descuentos (TN OAuth + Neon + Campañas c/ categorías)
+// ESM + Render estable. Incluye /api/health y /api/db/ping.
 
+import express from "express";
+import cookieSession from "cookie-session";
+import axios from "axios";
+import crypto from "crypto";
+import "dotenv/config";      // <- única carga de variables .env (NO duplicar)
+import { Pool } from "pg";
+
+// -------------------- DB (Neon) --------------------
 const { DATABASE_URL } = process.env;
-
-// Pool opcional (solo si hay DATABASE_URL)
 let pool = null;
 if (DATABASE_URL) {
   pool = new Pool({
@@ -13,19 +18,7 @@ if (DATABASE_URL) {
   });
 }
 
-
-// server.js — App Merci Descuentos (TN OAuth + Neon + Campañas c/ categorías)
-
-import express from "express";
-import dotenv from "dotenv";
-import cookieSession from "cookie-session";
-import axios from "axios";
-import crypto from "crypto";
-import { URLSearchParams } from "url";
-import pool from "./db.js";
-
-dotenv.config();
-
+// -------------------- App --------------------
 const app = express();
 app.set("trust proxy", 1);
 app.use(express.json());
@@ -39,10 +32,29 @@ app.use(
   })
 );
 
-// ---------------- Salud ----------------
+// -------------------- Salud --------------------
+app.get("/api/health", (_req, res) => {
+  res.json({
+    ok: true,
+    data: { status: "ok", node: process.version, time: new Date().toISOString() },
+  });
+});
+
+// DB ping (opcional)
+app.get("/api/db/ping", async (_req, res) => {
+  if (!pool) return res.json({ ok: false, error: "DATABASE_URL no configurada" });
+  try {
+    const r = await pool.query("SELECT 1 AS ok");
+    res.json({ ok: true, data: r.rows[0] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// Raíz simple
 app.get("/", (_req, res) => res.send("OK"));
 
-// ---------------- Install/OAuth ----------------
+// -------------------- Install/OAuth --------------------
 app.get("/install", (req, res) => {
   const store_id = String(req.query.store_id || "").trim();
   if (!store_id) return res.status(400).send("Falta store_id");
@@ -102,7 +114,7 @@ app.get("/oauth/callback", async (req, res) => {
   }
 });
 
-// ---------------- API Tiendanube: categorías ----------------
+// -------------------- API Tiendanube: categorías --------------------
 app.get("/api/tn/categories", async (req, res) => {
   try {
     const store_id = String(req.query.store_id || "").trim();
@@ -121,27 +133,29 @@ app.get("/api/tn/categories", async (req, res) => {
     const resp = await axios.get(`https://api.tiendanube.com/v1/${store_id}/categories`, {
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": "Merci Descuentos (contacto@merci.com)", // poné tu email o dominio
-        "Authentication": `bearer ${token}`
+        "User-Agent": "Merci Descuentos (andres.barba82@gmail.com)",
+        "Authentication": `bearer ${token}`,
       },
-      params: { per_page: 250 }
+      params: { per_page: 250 },
     });
 
-    // Normalizar nombre según idioma
-    const cats = (resp.data || []).map(c => ({
+    // Normalizar nombre segun idioma
+    const cats = (resp.data || []).map((c) => ({
       id: c.id,
-      name: c.name?.es || c.name?.pt || c.name?.en || String(c.id)
+      name: c.name?.es || c.name?.pt || c.name?.en || String(c.id),
     }));
 
     return res.json(cats);
   } catch (e) {
     console.error("GET /api/tn/categories error:", e.response?.data || e.message);
     const status = e.response?.status || 500;
-    return res.status(status).json({ message: "Error obteniendo categorías", detail: e.response?.data || e.message });
+    return res
+      .status(status)
+      .json({ message: "Error obteniendo categorías", detail: e.response?.data || e.message });
   }
 });
 
-// ---------------- Admin con formulario ----------------
+// -------------------- Admin (HTML con formulario) --------------------
 app.get("/admin", async (req, res) => {
   const store_id = String(req.query.store_id || "").trim();
   res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -375,7 +389,7 @@ window.addEventListener('load', () => { refresh(); });
 </html>`);
 });
 
-// ---------------- API: listar campañas ----------------
+// -------------------- API: listar campañas --------------------
 app.get("/api/campaigns", async (req, res) => {
   try {
     const store_id = String(req.query.store_id || "").trim();
@@ -400,7 +414,7 @@ app.get("/api/campaigns", async (req, res) => {
   }
 });
 
-// ---------------- API: crear campaña ----------------
+// -------------------- API: crear campaña --------------------
 app.post("/api/campaigns", async (req, res) => {
   try {
     const b = req.body || {};
@@ -429,7 +443,7 @@ app.post("/api/campaigns", async (req, res) => {
     const monthly_cap_amount = b.monthly_cap_amount !== undefined ? Number(b.monthly_cap_amount) : null;
     const exclude_sale_items = b.exclude_sale_items === true ? true : false;
 
-    // Nuevos campos de segmentación
+    // Segmentación (opcional)
     const include_category_ids = Array.isArray(b.include_category_ids) ? b.include_category_ids : null;
     const exclude_category_ids = Array.isArray(b.exclude_category_ids) ? b.exclude_category_ids : null;
     const include_product_ids  = Array.isArray(b.include_product_ids)  ? b.include_product_ids  : null;
@@ -520,38 +534,10 @@ app.post("/api/campaigns", async (req, res) => {
   }
 });
 
-// ---------------- Placeholders seguros ----------------
+// -------------------- Placeholders seguros --------------------
 app.post("/discounts/callback", (_req, res) => res.json({ discounts: [] }));
 app.post("/webhooks/orders/create", (_req, res) => res.sendStatus(200));
 
-// ---------------- Start ----------------
-const PORT = process.env.PORT || 3000;
-
-// --- Healthcheck simple (AGREGAR) ---
-app.get('/api/health', (_req, res) => {
-  res.json({
-    ok: true,
-    data: {
-      status: 'ok',
-      node: process.version,
-      time: new Date().toISOString(),
-    },
-  });
-});
-
-// --- DB healthcheck (AGREGAR) ---
-app.get('/api/db/ping', async (_req, res) => {
-  if (!pool) {
-    return res.json({ ok: false, error: 'DATABASE_URL no configurada' });
-  }
-  try {
-    const r = await pool.query('SELECT 1 AS ok');
-    res.json({ ok: true, data: r.rows[0] });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-
-// Escribila a mano si tu editor mete comillas raras
-app.listen(PORT, () => console.log('Server on http://localhost:' + PORT));
+// -------------------- Start --------------------
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+app.listen(PORT, () => console.log("Server on :" + PORT));
