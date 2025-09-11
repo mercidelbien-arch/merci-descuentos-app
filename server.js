@@ -137,7 +137,10 @@ app.get("/oauth/callback", async (req, res) => {
   try {
     const { code, state } = req.query;
     if (!code || !state) return res.status(400).send("Callback inválido");
-    if (state !== req.session.state) return res.status(400).send("Estado inválido");
+
+    // <-- cambio acá: tolerar falta de session.state en reautorización directa
+    const expected = req.session?.state;
+    if (expected && state !== expected) return res.status(400).send("Estado inválido");
 
     const redirect_uri = `${process.env.APP_BASE_URL}/oauth/callback`;
     const form = new URLSearchParams();
