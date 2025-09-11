@@ -638,42 +638,60 @@ app.post("/api/campaigns", async (req, res) => {
 // -------------------- Discounts Callback (aplica campañas por cupón) --------------------
 // -------------------- Discounts Callback (smoke test + lógica real) --------------------
 // -------------------- Discounts Callback (lógica real, sin smoke) --------------------
+// -------------------- Discounts Callback (borra al quitar cupón) --------------------
 app.post("/discounts/callback", async (req, res) => {
   try {
     const body = req.body || {};
     const store_id = String(body.store_id || "").trim();
     const coupons = Array.isArray(body.coupons) ? body.coupons : [];
-    if (!store_id || coupons.length === 0) return res.sendStatus(204);
+    const PROMO_ID = "1c508de3-84a0-4414-9c75-c2aee4814fcd"; // id real de la promo base
+
+    // Si no hay cupón -> pedimos borrar el descuento aplicado antes
+    if (!store_id || coupons.length === 0) {
+      return res.json({
+        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
+      });
+    }
 
     const code = String(coupons[0] || "").trim().toUpperCase();
 
-    // Campaña activa por tienda + código
+    // Buscar campaña activa por tienda + código
     const q = await pool.query(
       `SELECT * FROM campaigns
        WHERE store_id = $1 AND UPPER(code) = $2 AND status = 'active'
        LIMIT 1`,
       [store_id, code]
     );
-    if (q.rowCount === 0) return res.sendStatus(204);
+    if (q.rowCount === 0) {
+      return res.json({
+        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
+      });
+    }
     const c = q.rows[0];
 
     // Vigencia
     const today = new Date().toISOString().slice(0,10);
     if ((c.valid_from && today < c.valid_from) || (c.valid_until && today > c.valid_until)) {
-      return res.sendStatus(204);
+      return res.json({
+        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
+      });
     }
 
-    // Subtotal elegible: POR AHORA todo el carrito (luego afinamos por categorías)
+    // Subtotal (por ahora todo el carrito)
     const products = Array.isArray(body.products) ? body.products : [];
     let subtotal = 0;
-    for (const p of products) {
-      subtotal += Number(p.price || 0) * Number(p.quantity || 0);
+    for (const p of products) subtotal += Number(p.price || 0) * Number(p.quantity || 0);
+    if (!subtotal || subtotal <= 0) {
+      return res.json({
+        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
+      });
     }
-    if (subtotal <= 0) return res.sendStatus(204);
 
     // Mínimo de carrito
     if (c.min_cart_amount && subtotal < Number(c.min_cart_amount)) {
-      return res.sendStatus(204);
+      return res.json({
+        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
+      });
     }
 
     // Calcular descuento
@@ -681,21 +699,20 @@ app.post("/discounts/callback", async (req, res) => {
     const dval  = Number(c.discount_value || 0);
     let amount  = (dtype === 'percent') ? (subtotal * dval / 100) : dval;
 
-    // Tope máximo si existe
-    if (c.max_discount_amount != null) {
-      amount = Math.min(amount, Number(c.max_discount_amount));
+    // Tope máximo
+    if (c.max_discount_amount != null) amount = Math.min(amount, Number(c.max_discount_amount));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.json({
+        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
+      });
     }
-    if (!Number.isFinite(amount) || amount <= 0) return res.sendStatus(204);
 
-    // Debe ser el ID real de la promo creada
-    const promotion_id = "1c508de3-84a0-4414-9c75-c2aee4814fcd";
     const currency = body.currency || "ARS";
-
     return res.json({
       commands: [{
         command: "create_or_update_discount",
         specs: {
-          promotion_id,
+          promotion_id: PROMO_ID,
           currency,
           display_text: { "es-ar": `Cupón ${code}` },
           discount_specs: { type: "fixed", amount: amount.toFixed(2) }
@@ -704,7 +721,10 @@ app.post("/discounts/callback", async (req, res) => {
     });
   } catch (e) {
     console.error("discounts/callback error:", e);
-    return res.sendStatus(204);
+    // ante error también pedimos borrar para no dejar descuentos “pegados”
+    return res.json({
+      commands: [{ command: "delete_discount", specs: { promotion_id: "1c508de3-84a0-4414-9c75-c2aee4814fcd" } }]
+    });
   }
 });
 
