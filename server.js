@@ -441,7 +441,7 @@ app.get("/api/campaigns", async (req, res) => {
   }
 });
 
-// -------------------- API: crear campaña --------------------
+// -------------------- API: crear campaña (FIX JSONB) --------------------
 app.post("/api/campaigns", async (req, res) => {
   try {
     const b = req.body || {};
@@ -464,20 +464,28 @@ app.post("/api/campaigns", async (req, res) => {
     const valid_until = b.valid_until || new Date().toISOString().slice(0,10);
     const apply_scope = (b.apply_scope || "all").toString();
 
-    const min_cart_amount = b.min_cart_amount !== undefined ? Number(b.min_cart_amount) : 0;
+    const min_cart_amount   = b.min_cart_amount   !== undefined ? Number(b.min_cart_amount)   : 0;
     const max_discount_amount = b.max_discount_amount !== undefined ? Number(b.max_discount_amount) : null;
     const monthly_cap_amount = b.monthly_cap_amount !== undefined ? Number(b.monthly_cap_amount) : null;
     const exclude_sale_items = b.exclude_sale_items === true ? true : false;
 
-    // Segmentación (opcional)
-    const include_category_ids = Array.isArray(b.include_category_ids) ? b.include_category_ids : null;
-    const exclude_category_ids = Array.isArray(b.exclude_category_ids) ? b.exclude_category_ids : null;
-    const include_product_ids  = Array.isArray(b.include_product_ids)  ? b.include_product_ids  : null;
-    const exclude_product_ids  = Array.isArray(b.exclude_product_ids)  ? b.exclude_product_ids  : null;
+    // Segmentación -> JSONB (IMPORTANTE: stringificar)
+    const include_category_ids = Array.isArray(b.include_category_ids) && b.include_category_ids.length
+      ? JSON.stringify(b.include_category_ids.map(Number))
+      : null;
+    const exclude_category_ids = Array.isArray(b.exclude_category_ids) && b.exclude_category_ids.length
+      ? JSON.stringify(b.exclude_category_ids.map(Number))
+      : null;
+    const include_product_ids = Array.isArray(b.include_product_ids) && b.include_product_ids.length
+      ? JSON.stringify(b.include_product_ids.map(Number))
+      : null;
+    const exclude_product_ids = Array.isArray(b.exclude_product_ids) && b.exclude_product_ids.length
+      ? JSON.stringify(b.exclude_product_ids.map(Number))
+      : null;
 
     // Legacy obligatorios con defaults
-    const min_cart = b.min_cart != null ? Number(b.min_cart) : 0;
-    const monthly_cap = b.monthly_cap != null ? Number(b.monthly_cap) : 0;
+    const min_cart     = b.min_cart     != null ? Number(b.min_cart)     : 0;
+    const monthly_cap  = b.monthly_cap  != null ? Number(b.monthly_cap)  : 0;
     const exclude_on_sale = b.exclude_on_sale != null ? !!b.exclude_on_sale : false;
     const status = "active";
 
@@ -507,8 +515,9 @@ app.post("/api/campaigns", async (req, res) => {
         NULL, NULL,
         $12, $13, $14,
         $15, $16, $17,
-        $18, $19,
-        $20, $21
+        $18,
+        $19::jsonb, $20::jsonb,
+        $21::jsonb, $22::jsonb
       )
       RETURNING id, store_id, code, name, created_at
     `;
@@ -542,20 +551,9 @@ app.post("/api/campaigns", async (req, res) => {
     return res.json({ ok: true, campaign: r.rows[0] });
   } catch (e) {
     console.error("POST /api/campaigns error:", e);
-    if (e.code === "23505") {
-      return res.status(409).json({
-        message: "El código de campaña ya existe en esta tienda",
-        code: e.code,
-        constraint: e.constraint,
-      });
-    }
     return res.status(500).json({
       message: "Error al crear campaña",
-      code: e.code,
-      detail: e.detail,
-      column: e.column,
-      constraint: e.constraint,
-      hint: e.hint,
+      detail: e.detail || e.message
     });
   }
 });
