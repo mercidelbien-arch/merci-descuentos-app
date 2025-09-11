@@ -215,9 +215,10 @@ app.get("/api/tn/categories", async (req, res) => {
 });
 
 // ---------------- Registrar callback de descuentos (TN) ----------------
-app.post("/api/tn/register-callback", async (req, res) => {
+// ---------------- Registrar callback de descuentos (TN) ----------------
+app.all("/api/tn/register-callback", async (req, res) => {
   try {
-    const store_id = String(req.body.store_id || req.query.store_id || "").trim();
+    const store_id = String((req.body && req.body.store_id) || req.query.store_id || "").trim();
     if (!store_id) return res.status(400).json({ message: "Falta store_id" });
 
     // buscamos el token guardado para esa tienda
@@ -234,10 +235,10 @@ app.post("/api/tn/register-callback", async (req, res) => {
       {
         headers: {
           "Content-Type": "application/json",
-          "User-Agent": "Merci Descuentos (contacto@merci.com)",
+          "User-Agent": "Merci Descuentos (andres.barba82@gmail.com)",
           "Authentication": `bearer ${token}`,
         },
-        timeout: 5000,
+        timeout: 8000,
       }
     );
 
@@ -248,6 +249,7 @@ app.post("/api/tn/register-callback", async (req, res) => {
     return res.status(status).json({ ok: false, error: e.response?.data || e.message });
   }
 });
+
 
 
 // -------------------- Admin (HTML con formulario) --------------------
