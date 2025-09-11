@@ -1,11 +1,11 @@
 // server.js — App Merci Descuentos (TN OAuth + Neon + Campañas c/ categorías)
-// ESM + Render estable. Incluye /api/health y /api/db/ping.
+// ESM + Render estable. Incluye /api/health, /api/db/ping y /api/db/migrate (crear tablas).
 
 import express from "express";
 import cookieSession from "cookie-session";
 import axios from "axios";
 import crypto from "crypto";
-import "dotenv/config";      // <- única carga de variables .env (NO duplicar)
+import "dotenv/config";      // única carga de variables .env
 import { Pool } from "pg";
 
 // -------------------- DB (Neon) --------------------
@@ -47,6 +47,71 @@ app.get("/api/db/ping", async (_req, res) => {
     const r = await pool.query("SELECT 1 AS ok");
     res.json({ ok: true, data: r.rows[0] });
   } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// -------------------- MIGRACIONES (crear tablas) --------------------
+const MIGRATE_SQL = `
+  CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+  CREATE TABLE IF NOT EXISTS stores (
+    store_id TEXT PRIMARY KEY,
+    access_token TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+  );
+
+  CREATE TABLE IF NOT EXISTS campaigns (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id TEXT NOT NULL REFERENCES stores(store_id) ON DELETE CASCADE,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+
+    -- Compatibilidad con validaciones previas
+    type TEXT NOT NULL CHECK (type IN ('percentage','absolute')),
+    value INTEGER NOT NULL,
+
+    -- Modelo nuevo (UI)
+    discount_type TEXT,                   -- 'percent' | 'fixed'
+    discount_value NUMERIC,               -- valor del descuento
+
+    valid_from DATE,
+    valid_until DATE,
+    apply_scope TEXT DEFAULT 'all',       -- 'all' | 'categories' | 'products'
+    min_cart_amount NUMERIC DEFAULT 0,
+    max_discount_amount NUMERIC,
+    monthly_cap_amount NUMERIC,
+    exclude_sale_items BOOLEAN DEFAULT false,
+
+    -- Campos legacy (para compatibilidad)
+    min_cart INTEGER DEFAULT 0,
+    monthly_cap INTEGER DEFAULT 0,
+    exclude_on_sale BOOLEAN DEFAULT false,
+    start_date DATE,
+    end_date DATE,
+
+    -- Segmentación (flexible en JSON)
+    include_category_ids JSONB,
+    exclude_category_ids JSONB,
+    include_product_ids  JSONB,
+    exclude_product_ids  JSONB,
+
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+
+    UNIQUE (store_id, code)
+  );
+`;
+
+app.get("/api/db/migrate", async (_req, res) => {
+  if (!pool) return res.status(500).json({ ok: false, error: "Sin pool de DB" });
+  try {
+    await pool.query(MIGRATE_SQL);
+    res.json({ ok: true, message: "Migraciones aplicadas" });
+  } catch (e) {
+    console.error("MIGRATE error:", e);
     res.status(500).json({ ok: false, error: e.message });
   }
 });
@@ -308,23 +373,23 @@ function renderList(rows){
     $('#list').innerHTML = '<p class="muted">No hay campañas.</p>';
     return;
   }
-  $('#list').innerHTML = \`
+  $('#list').innerHTML = `
     <table>
       <thead><tr>
         <th>Nombre</th><th>Código</th><th>Tipo</th><th>Valor</th><th>Ámbito</th><th>Vigencia</th>
       </tr></thead>
       <tbody>
-        \${rows.map(r => \`
+        ${rows.map(r => `
           <tr>
-            <td>\${r.name}</td>
-            <td><code>\${r.code}</code></td>
-            <td>\${r.discount_type}</td>
-            <td>\${r.discount_type === 'percent' ? (r.discount_value + '%') : ('$' + r.discount_value)}</td>
-            <td>\${r.apply_scope}</td>
-            <td>\${r.valid_from} → \${r.valid_until}</td>
-          </tr>\`).join('')}
+            <td>${r.name}</td>
+            <td><code>${r.code}</code></td>
+            <td>${r.discount_type}</td>
+            <td>${r.discount_type === 'percent' ? (r.discount_value + '%') : ('$' + r.discount_value)}</td>
+            <td>${r.apply_scope}</td>
+            <td>${r.valid_from} → ${r.valid_until}</td>
+          </tr>`).join('')}
       </tbody>
-    </table>\`;
+    </table>`;
 }
 
 async function refresh(){
@@ -354,8 +419,8 @@ async function maybeLoadCats(){
   try{
     const cats = await fetchCategories(sid);
     const inc = $('#include_categories'), exc = $('#exclude_categories');
-    inc.innerHTML = cats.map(c => \`<option value="\${c.id}">\${c.name}</option>\`).join('');
-    exc.innerHTML = cats.map(c => \`<option value="\${c.id}">\${c.name}</option>\`).join('');
+    inc.innerHTML = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    exc.innerHTML = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
     $('#msg').textContent = '';
   }catch(e){
     console.error(e);
@@ -431,7 +496,6 @@ app.post("/api/campaigns", async (req, res) => {
 
     // Cumplir CHECK(type): 'percentage' | 'absolute'
     const type = discount_type === "percent" ? "percentage" : "absolute";
-    // Legacy 'value' (INTEGER NOT NULL)
     const value = Number.isFinite(discount_value_num) ? Math.round(discount_value_num) : 0;
 
     const valid_from = b.valid_from || new Date().toISOString().slice(0,10);
