@@ -151,7 +151,7 @@ app.get("/admin", async (req, res) => {
 </style>
 </head>
 <body>
-  <h1>Cupones Merci ${store_id ? \`— <small class="muted">Tienda <code>\${store_id}</code></small>\` : ""}</h1>
+  <h1>Cupones Merci ${store_id ? ('&mdash; <small class="muted">Tienda <code>' + store_id + '</code></small>') : ''}</h1>
   <p class="muted">Crear y segmentar campañas por categorías.</p>
 
   <div class="card">
