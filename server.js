@@ -636,20 +636,38 @@ app.post("/api/campaigns", async (req, res) => {
 
 // -------------------- Placeholders seguros --------------------
 // -------------------- Discounts Callback (aplica campañas por cupón) --------------------
+// -------------------- Discounts Callback (smoke test + lógica real) --------------------
 app.post("/discounts/callback", async (req, res) => {
   try {
     const body = req.body || {};
     const store_id = String(body.store_id || "").trim();
     const coupons = Array.isArray(body.coupons) ? body.coupons : [];
-    if (!store_id || coupons.length === 0) return res.sendStatus(204); // sin cupón → no acción
+    const upperCoupons = coupons.map(c => String(c || "").trim().toUpperCase());
 
-    // Usamos el primer cupón
-    const code = String(coupons[0] || "").trim().toUpperCase();
+    // --- SMOKE TEST: si ingresan PRUEBA10, devolvemos $100 fijo para verificar conectividad ---
+    if (upperCoupons.includes("PRUEBA10")) {
+      console.log("SMOKE CALLBACK BODY:", JSON.stringify(body).slice(0, 2000));
+      const currency = body.currency || "ARS";
+      const promotion_id = `merci-${store_id}-PRUEBA10`;
+      return res.json({
+        commands: [{
+          command: "create_or_update_discount",
+          specs: {
+            promotion_id,
+            currency,
+            display_text: { "es-ar": "Cupón PRUEBA10" },
+            discount_specs: { type: "fixed", amount: "100.00" } // $100 de descuento
+          }
+        }]
+      });
+    }
 
-    // Buscamos campaña activa por código y tienda
+    // --------- Fallback: lógica real (aplica campañas por código) ---------
+    if (!store_id || coupons.length === 0) return res.sendStatus(204);
+
+    const code = upperCoupons[0];
     const q = await pool.query(
-      `SELECT *
-         FROM campaigns
+      `SELECT * FROM campaigns
         WHERE store_id = $1
           AND UPPER(code) = $2
           AND status = 'active'
@@ -657,10 +675,8 @@ app.post("/discounts/callback", async (req, res) => {
       [store_id, code]
     );
     if (q.rowCount === 0) return res.sendStatus(204);
-
     const camp = q.rows[0];
 
-    // Vigencia (YYYY-MM-DD)
     const today = new Date().toISOString().slice(0,10);
     if ((camp.valid_from && today < camp.valid_from) ||
         (camp.valid_until && today > camp.valid_until)) {
@@ -668,16 +684,14 @@ app.post("/discounts/callback", async (req, res) => {
     }
 
     const products = Array.isArray(body.products) ? body.products : [];
-
-    // Total elegible según ámbito/categorías
     let eligibleSubtotal = 0;
+
     for (const p of products) {
       const price = Number(p.price || 0);
       const qty   = Number(p.quantity || 0);
       let eligible = true;
 
       if (camp.apply_scope === 'categories') {
-        // IDs de categorías del producto (incluyendo subcategorías)
         const catIds = [];
         if (Array.isArray(p.categories)) {
           for (const c of p.categories) {
@@ -687,70 +701,49 @@ app.post("/discounts/callback", async (req, res) => {
             }
           }
         }
-        // Campos pueden venir como JSONB (objeto/array) o string JSON
-        const parseJsonb = (v) => (Array.isArray(v) ? v
-          : (v ? JSON.parse(v) : null));
+        const parseJsonb = (v) => (Array.isArray(v) ? v : (v ? JSON.parse(v) : null));
         const inc = parseJsonb(camp.include_category_ids) || [];
         const exc = parseJsonb(camp.exclude_category_ids) || [];
-
         const matchesInc = inc.length === 0 ? true : catIds.some(id => inc.includes(id));
         const matchesExc = exc.length > 0   ? catIds.some(id => exc.includes(id)) : false;
-
         eligible = matchesInc && !matchesExc;
       }
 
       if (eligible) eligibleSubtotal += price * qty;
     }
 
-    // Mínimo de carrito (si existe)
     if (camp.min_cart_amount && eligibleSubtotal < Number(camp.min_cart_amount)) {
       return res.sendStatus(204);
     }
-
     if (eligibleSubtotal <= 0) return res.sendStatus(204);
 
-    // Calcular monto final (siempre devolvemos "fixed" según especificación)
     const dtype = String(camp.discount_type || 'percent').toLowerCase();
     const dval  = Number(camp.discount_value || 0);
     let amount  = 0;
+    if (dtype === 'percent') amount = eligibleSubtotal * dval / 100;
+    else amount = dval;
 
-    if (dtype === 'percent') {
-      amount = eligibleSubtotal * dval / 100;
-    } else {
-      amount = dval;
-    }
-
-    // Tope máximo (si existe)
     if (camp.max_discount_amount != null) {
       amount = Math.min(amount, Number(camp.max_discount_amount));
     }
-
-    // Nada que aplicar
     if (!Number.isFinite(amount) || amount <= 0) return res.sendStatus(204);
 
     const currency = body.currency || 'ARS';
-    const promotion_id = `merci-${store_id}-${code}`; // ID estable por cupón
-    const response = {
+    const promotion_id = `merci-${store_id}-${code}`;
+    return res.json({
       commands: [{
         command: "create_or_update_discount",
         specs: {
           promotion_id,
           currency,
           display_text: { "es-ar": `Cupón ${code}` },
-          // Descuento a nivel carrito (cross items)
-          discount_specs: {
-            type: "fixed",
-            amount: amount.toFixed(2)
-          }
+          discount_specs: { type: "fixed", amount: amount.toFixed(2) }
         }
       }]
-    };
-
-    return res.json(response);
+    });
   } catch (e) {
     console.error("discounts/callback error:", e);
-    // Ante error, responder sin acciones (requisito de la API)
-    return res.sendStatus(204);
+    return res.sendStatus(204); // ante error, sin acción
   }
 });
 
