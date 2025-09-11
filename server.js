@@ -254,6 +254,7 @@ app.all("/api/tn/register-callback", async (req, res) => {
 });
 
 // --- TN: crear promoción base para habilitar callbacks ---
+// --- TN: crear promoción base para habilitar callbacks ---
 app.get("/api/tn/promotions/register-base", async (req, res) => {
   try {
     const store_id = String(req.query.store_id || "").trim();
@@ -265,17 +266,17 @@ app.get("/api/tn/promotions/register-base", async (req, res) => {
     const token = r.rows[0].access_token;
 
     const url = `https://api.tiendanube.com/v1/${store_id}/promotions`;
+
+    // ✅ cuerpo correcto: sin tier ni status, con allocation_type
     const body = {
       name: "Merci Engine – Base",
-      tier: "cross_items",      // promocion a nivel carrito
-      status: "active"          // activa
-      // si la API pide algo más, lo veremos en el error que devolvemos abajo
+      allocation_type: "cross_items" // 'cross_items' | 'line_item' | 'shipping_line'
     };
 
     const resp = await axios.post(url, body, {
       headers: {
         "Content-Type": "application/json",
-        "User-Agent": "Merci Descuentos (contacto@merci.com)",
+        "User-Agent": "Merci Descuentos (andres.barba82@gmail.com)",
         "Authentication": `bearer ${token}`
       }
     });
