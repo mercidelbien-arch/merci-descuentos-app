@@ -119,20 +119,17 @@ app.get("/api/db/migrate", async (_req, res) => {
 // Raíz simple
 app.get("/", (_req, res) => res.send("OK"));
 
-// -------------------- Install/OAuth (sin pedir store_id) --------------------
+// -------------------- Install/OAuth (URL correcta con app_id en el path) --------------------
 app.get("/install", (req, res) => {
+  const appId = process.env.TN_CLIENT_ID;
+  if (!appId) return res.status(500).send("Falta TN_CLIENT_ID en variables de entorno");
+
   const state = crypto.randomBytes(16).toString("hex");
   req.session.state = state;
 
-  const redirect_uri = `${process.env.APP_BASE_URL}/oauth/callback`;
-  const url =
-    `https://www.tiendanube.com/apps/authorize?` +
-    `client_id=${encodeURIComponent(process.env.TN_CLIENT_ID)}` +
-    `&redirect_uri=${encodeURIComponent(redirect_uri)}` +
-    `&state=${encodeURIComponent(state)}` +
-    `&response_type=code` +
-    `&scope=read_products,read_categories,write_discounts,read_discounts`;
-
+  // Tiendanube: el inicio de instalación es /apps/{app_id}/authorize
+  // (si no está logueado, primero te pide login; después muestra permisos)
+  const url = `https://www.tiendanube.com/apps/${encodeURIComponent(appId)}/authorize?state=${encodeURIComponent(state)}`;
   res.redirect(url);
 });
 
