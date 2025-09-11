@@ -637,99 +637,60 @@ app.post("/api/campaigns", async (req, res) => {
 // -------------------- Placeholders seguros --------------------
 // -------------------- Discounts Callback (aplica campañas por cupón) --------------------
 // -------------------- Discounts Callback (smoke test + lógica real) --------------------
+// -------------------- Discounts Callback (lógica real, sin smoke) --------------------
 app.post("/discounts/callback", async (req, res) => {
   try {
     const body = req.body || {};
     const store_id = String(body.store_id || "").trim();
     const coupons = Array.isArray(body.coupons) ? body.coupons : [];
-    const upperCoupons = coupons.map(c => String(c || "").trim().toUpperCase());
-
-    // --- SMOKE TEST: si ingresan PRUEBA10, devolvemos $100 fijo para verificar conectividad ---
-    if (upperCoupons.includes("PRUEBA10")) {
-      console.log("SMOKE CALLBACK BODY:", JSON.stringify(body).slice(0, 2000));
-      const currency = body.currency || "ARS";
-      const promotion_id = "1c508de3-84a0-4414-9c75-c2aee4814fcd";
-      return res.json({
-        commands: [{
-          command: "create_or_update_discount",
-          specs: {
-            promotion_id,
-            currency,
-            display_text: { "es-ar": "Cupón PRUEBA10" },
-            discount_specs: { type: "fixed", amount: "100.00" } // $100 de descuento
-          }
-        }]
-      });
-    }
-
-    // --------- Fallback: lógica real (aplica campañas por código) ---------
     if (!store_id || coupons.length === 0) return res.sendStatus(204);
 
-    const code = upperCoupons[0];
+    const code = String(coupons[0] || "").trim().toUpperCase();
+
+    // Campaña activa por tienda + código
     const q = await pool.query(
       `SELECT * FROM campaigns
-        WHERE store_id = $1
-          AND UPPER(code) = $2
-          AND status = 'active'
-        LIMIT 1`,
+       WHERE store_id = $1 AND UPPER(code) = $2 AND status = 'active'
+       LIMIT 1`,
       [store_id, code]
     );
     if (q.rowCount === 0) return res.sendStatus(204);
-    const camp = q.rows[0];
+    const c = q.rows[0];
 
+    // Vigencia
     const today = new Date().toISOString().slice(0,10);
-    if ((camp.valid_from && today < camp.valid_from) ||
-        (camp.valid_until && today > camp.valid_until)) {
+    if ((c.valid_from && today < c.valid_from) || (c.valid_until && today > c.valid_until)) {
       return res.sendStatus(204);
     }
 
+    // Subtotal elegible: POR AHORA todo el carrito (luego afinamos por categorías)
     const products = Array.isArray(body.products) ? body.products : [];
-    let eligibleSubtotal = 0;
-
+    let subtotal = 0;
     for (const p of products) {
-      const price = Number(p.price || 0);
-      const qty   = Number(p.quantity || 0);
-      let eligible = true;
-
-      if (camp.apply_scope === 'categories') {
-        const catIds = [];
-        if (Array.isArray(p.categories)) {
-          for (const c of p.categories) {
-            if (c && c.id != null) catIds.push(Number(c.id));
-            if (Array.isArray(c.subcategories)) {
-              for (const sid of c.subcategories) catIds.push(Number(sid));
-            }
-          }
-        }
-        const parseJsonb = (v) => (Array.isArray(v) ? v : (v ? JSON.parse(v) : null));
-        const inc = parseJsonb(camp.include_category_ids) || [];
-        const exc = parseJsonb(camp.exclude_category_ids) || [];
-        const matchesInc = inc.length === 0 ? true : catIds.some(id => inc.includes(id));
-        const matchesExc = exc.length > 0   ? catIds.some(id => exc.includes(id)) : false;
-        eligible = matchesInc && !matchesExc;
-      }
-
-      if (eligible) eligibleSubtotal += price * qty;
+      subtotal += Number(p.price || 0) * Number(p.quantity || 0);
     }
+    if (subtotal <= 0) return res.sendStatus(204);
 
-    if (camp.min_cart_amount && eligibleSubtotal < Number(camp.min_cart_amount)) {
+    // Mínimo de carrito
+    if (c.min_cart_amount && subtotal < Number(c.min_cart_amount)) {
       return res.sendStatus(204);
     }
-    if (eligibleSubtotal <= 0) return res.sendStatus(204);
 
-    const dtype = String(camp.discount_type || 'percent').toLowerCase();
-    const dval  = Number(camp.discount_value || 0);
-    let amount  = 0;
-    if (dtype === 'percent') amount = eligibleSubtotal * dval / 100;
-    else amount = dval;
+    // Calcular descuento
+    const dtype = String(c.discount_type || 'percent').toLowerCase(); // 'percent' | 'fixed'
+    const dval  = Number(c.discount_value || 0);
+    let amount  = (dtype === 'percent') ? (subtotal * dval / 100) : dval;
 
-    if (camp.max_discount_amount != null) {
-      amount = Math.min(amount, Number(camp.max_discount_amount));
+    // Tope máximo si existe
+    if (c.max_discount_amount != null) {
+      amount = Math.min(amount, Number(c.max_discount_amount));
     }
     if (!Number.isFinite(amount) || amount <= 0) return res.sendStatus(204);
 
-    const currency = body.currency || 'ARS';
+    // Debe ser el ID real de la promo creada
     const promotion_id = "1c508de3-84a0-4414-9c75-c2aee4814fcd";
+    const currency = body.currency || "ARS";
+
     return res.json({
       commands: [{
         command: "create_or_update_discount",
@@ -743,7 +704,7 @@ app.post("/discounts/callback", async (req, res) => {
     });
   } catch (e) {
     console.error("discounts/callback error:", e);
-    return res.sendStatus(204); // ante error, sin acción
+    return res.sendStatus(204);
   }
 });
 
