@@ -253,6 +253,40 @@ app.all("/api/tn/register-callback", async (req, res) => {
   }
 });
 
+// --- TN: crear promoción base para habilitar callbacks ---
+app.get("/api/tn/promotions/register-base", async (req, res) => {
+  try {
+    const store_id = String(req.query.store_id || "").trim();
+    if (!store_id) return res.status(400).json({ ok:false, error:"Falta store_id" });
+
+    // buscar token de esa tienda
+    const r = await pool.query("SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1", [store_id]);
+    if (r.rowCount === 0) return res.status(401).json({ ok:false, error:"No hay token para esa tienda" });
+    const token = r.rows[0].access_token;
+
+    const url = `https://api.tiendanube.com/v1/${store_id}/promotions`;
+    const body = {
+      name: "Merci Engine – Base",
+      tier: "cross_items",      // promocion a nivel carrito
+      status: "active"          // activa
+      // si la API pide algo más, lo veremos en el error que devolvemos abajo
+    };
+
+    const resp = await axios.post(url, body, {
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "Merci Descuentos (contacto@merci.com)",
+        "Authentication": `bearer ${token}`
+      }
+    });
+
+    return res.json({ ok:true, data: resp.data });
+  } catch (e) {
+    console.error("register promotion error:", e.response?.data || e.message);
+    const status = e.response?.status || 500;
+    return res.status(status).json({ ok:false, error: e.response?.data || e.message });
+  }
+});
 
 
 // -------------------- Admin (HTML con formulario) --------------------
