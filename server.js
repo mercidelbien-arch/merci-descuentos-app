@@ -639,6 +639,7 @@ app.post("/api/campaigns", async (req, res) => {
 // -------------------- Discounts Callback (smoke test + lógica real) --------------------
 // -------------------- Discounts Callback (lógica real, sin smoke) --------------------
 // -------------------- Discounts Callback (borra al quitar cupón) --------------------
+// -------------------- Discounts Callback (con categorías + borra al quitar cupón) --------------------
 app.post("/discounts/callback", async (req, res) => {
   try {
     const body = req.body || {};
@@ -646,16 +647,14 @@ app.post("/discounts/callback", async (req, res) => {
     const coupons = Array.isArray(body.coupons) ? body.coupons : [];
     const PROMO_ID = "1c508de3-84a0-4414-9c75-c2aee4814fcd"; // id real de la promo base
 
-    // Si no hay cupón -> pedimos borrar el descuento aplicado antes
+    // Si no hay cupón -> borrar descuento previo
     if (!store_id || coupons.length === 0) {
-      return res.json({
-        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
-      });
+      return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
 
     const code = String(coupons[0] || "").trim().toUpperCase();
 
-    // Buscar campaña activa por tienda + código
+    // Buscar campaña activa (por tienda + código)
     const q = await pool.query(
       `SELECT * FROM campaigns
        WHERE store_id = $1 AND UPPER(code) = $2 AND status = 'active'
@@ -663,48 +662,75 @@ app.post("/discounts/callback", async (req, res) => {
       [store_id, code]
     );
     if (q.rowCount === 0) {
-      return res.json({
-        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
-      });
+      return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
     const c = q.rows[0];
 
     // Vigencia
     const today = new Date().toISOString().slice(0,10);
     if ((c.valid_from && today < c.valid_from) || (c.valid_until && today > c.valid_until)) {
-      return res.json({
-        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
-      });
+      return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
 
-    // Subtotal (por ahora todo el carrito)
+    // ---- Subtotal elegible por categorías (si la campaña es "categories") ----
     const products = Array.isArray(body.products) ? body.products : [];
-    let subtotal = 0;
-    for (const p of products) subtotal += Number(p.price || 0) * Number(p.quantity || 0);
-    if (!subtotal || subtotal <= 0) {
-      return res.json({
-        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
-      });
+
+    // helpers
+    const parseJsonb = (v) => {
+      if (Array.isArray(v)) return v;
+      if (!v) return [];
+      try { return JSON.parse(v); } catch { return []; }
+    };
+    const inc = parseJsonb(c.include_category_ids).map(Number); // categorías incluidas
+    const exc = parseJsonb(c.exclude_category_ids).map(Number); // categorías excluidas
+
+    const getCatIds = (p) => {
+      // Tiendanube puede mandar category_ids o un arreglo de categories con {id, ...}
+      if (Array.isArray(p.category_ids)) return p.category_ids.map(Number);
+      if (Array.isArray(p.categories)) {
+        const ids = [];
+        for (const cat of p.categories) {
+          if (cat && cat.id != null) ids.push(Number(cat.id));
+          if (Array.isArray(cat.subcategories)) ids.push(...cat.subcategories.map(Number));
+        }
+        return ids;
+      }
+      return [];
+    };
+
+    let eligibleSubtotal = 0;
+    for (const p of products) {
+      const price = Number(p.price || 0);
+      const qty   = Number(p.quantity || 0);
+      let ok = true;
+
+      if (String(c.apply_scope || "all") === "categories") {
+        const cats = getCatIds(p);
+        const matchesInc = inc.length === 0 ? true : cats.some(id => inc.includes(id));
+        const matchesExc = exc.length > 0   ? cats.some(id => exc.includes(id)) : false;
+        ok = matchesInc && !matchesExc;
+      }
+
+      if (ok) eligibleSubtotal += price * qty;
     }
 
-    // Mínimo de carrito
-    if (c.min_cart_amount && subtotal < Number(c.min_cart_amount)) {
-      return res.json({
-        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
-      });
+    // Sin base o no alcanza mínimo -> borrar
+    if (!eligibleSubtotal || eligibleSubtotal <= 0) {
+      return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
+    }
+    if (c.min_cart_amount && eligibleSubtotal < Number(c.min_cart_amount)) {
+      return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
 
-    // Calcular descuento
+    // Calcular descuento (porcentaje o monto fijo) sobre el subtotal elegible
     const dtype = String(c.discount_type || 'percent').toLowerCase(); // 'percent' | 'fixed'
     const dval  = Number(c.discount_value || 0);
-    let amount  = (dtype === 'percent') ? (subtotal * dval / 100) : dval;
+    let amount  = (dtype === 'percent') ? (eligibleSubtotal * dval / 100) : dval;
 
-    // Tope máximo
+    // Tope máximo, si existe
     if (c.max_discount_amount != null) amount = Math.min(amount, Number(c.max_discount_amount));
     if (!Number.isFinite(amount) || amount <= 0) {
-      return res.json({
-        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
-      });
+      return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
 
     const currency = body.currency || "ARS";
@@ -721,7 +747,7 @@ app.post("/discounts/callback", async (req, res) => {
     });
   } catch (e) {
     console.error("discounts/callback error:", e);
-    // ante error también pedimos borrar para no dejar descuentos “pegados”
+    // ante error, eliminar descuento para no dejarlo pegado
     return res.json({
       commands: [{ command: "delete_discount", specs: { promotion_id: "1c508de3-84a0-4414-9c75-c2aee4814fcd" } }]
     });
