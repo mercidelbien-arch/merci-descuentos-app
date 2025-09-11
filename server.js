@@ -1,5 +1,5 @@
 // server.js — App Merci Descuentos (TN OAuth + Neon + Campañas c/ categorías)
-// ESM + Render estable. Incluye /api/health, /api/db/ping y /api/db/migrate (crear tablas).
+// ESM + Render estable. Incluye /api/health, /api/db/ping y /api/db/migrate.
 
 import express from "express";
 import cookieSession from "cookie-session";
@@ -74,25 +74,25 @@ const MIGRATE_SQL = `
     value INTEGER NOT NULL,
 
     -- Modelo nuevo (UI)
-    discount_type TEXT,                   -- 'percent' | 'fixed'
-    discount_value NUMERIC,               -- valor del descuento
+    discount_type TEXT,
+    discount_value NUMERIC,
 
     valid_from DATE,
     valid_until DATE,
-    apply_scope TEXT DEFAULT 'all',       -- 'all' | 'categories' | 'products'
+    apply_scope TEXT DEFAULT 'all',
     min_cart_amount NUMERIC DEFAULT 0,
     max_discount_amount NUMERIC,
     monthly_cap_amount NUMERIC,
     exclude_sale_items BOOLEAN DEFAULT false,
 
-    -- Campos legacy (para compatibilidad)
+    -- Legacy (compatibilidad)
     min_cart INTEGER DEFAULT 0,
     monthly_cap INTEGER DEFAULT 0,
     exclude_on_sale BOOLEAN DEFAULT false,
     start_date DATE,
     end_date DATE,
 
-    -- Segmentación (flexible en JSON)
+    -- Segmentación
     include_category_ids JSONB,
     exclude_category_ids JSONB,
     include_product_ids  JSONB,
@@ -224,234 +224,202 @@ app.get("/api/tn/categories", async (req, res) => {
 app.get("/admin", async (req, res) => {
   const store_id = String(req.query.store_id || "").trim();
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  return res.end(`<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8"/>
-<title>Cupones Merci</title>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;padding:24px;max-width:980px;margin:auto;background:#fafafa;color:#111}
-  h1{margin:0 0 8px}
-  .card{background:#fff;border:1px solid #eee;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:16px;margin:16px 0}
-  label{display:block;font-size:12px;color:#555;margin-top:10px}
-  input,select,textarea{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;margin-top:6px}
-  .row{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-  .row3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-  button{background:#111;color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}
-  table{width:100%;border-collapse:collapse;margin-top:12px}
-  th,td{border-bottom:1px solid #eee;text-align:left;padding:8px}
-  .muted{color:#666}
-  .multi{min-height:120px}
-</style>
-</head>
-<body>
-  <h1>Cupones Merci ${store_id ? ('&mdash; <small class="muted">Tienda <code>' + store_id + '</code></small>') : ''}</h1>
-  <p class="muted">Crear y segmentar campañas por categorías.</p>
-
-  <div class="card">
-    <h3>Nueva campaña</h3>
-    <form id="f">
-      <div class="row">
-        <div>
-          <label>Store ID</label>
-          <input name="store_id" value="${store_id || ""}" required />
-        </div>
-        <div>
-          <label>Código del cupón</label>
-          <input name="code" placeholder="EJ: GIMNASIO10" required />
-        </div>
-      </div>
-
-      <label>Nombre interno</label>
-      <input name="name" placeholder="EJ: Convenio Gimnasios 10%" required />
-
-      <div class="row">
-        <div>
-          <label>Tipo de descuento</label>
-          <select name="discount_type">
-            <option value="percent" selected>%</option>
-            <option value="fixed">Monto fijo</option>
-          </select>
-        </div>
-        <div>
-          <label>Valor</label>
-          <input name="discount_value" type="number" step="1" value="10" required />
-        </div>
-      </div>
-
-      <div class="row">
-        <div>
-          <label>Vigencia desde</label>
-          <input name="valid_from" type="date" required />
-        </div>
-        <div>
-          <label>Vigencia hasta</label>
-          <input name="valid_until" type="date" required />
-        </div>
-      </div>
-
-      <div class="row3">
-        <div>
-          <label>Ámbito</label>
-          <select name="apply_scope" id="apply_scope">
-            <option value="all" selected>Toda la tienda</option>
-            <option value="categories">Categorías incluidas</option>
-            <option value="products">Productos (próximo)</option>
-          </select>
-        </div>
-        <div>
-          <label>Mínimo carrito</label>
-          <input name="min_cart_amount" type="number" step="1" value="0" />
-        </div>
-        <div>
-          <label>Excluir productos en oferta</label>
-          <select name="exclude_sale_items">
-            <option value="false" selected>No</option>
-            <option value="true">Sí</option>
-          </select>
-        </div>
-      </div>
-
-      <div id="cats_block" style="display:none">
-        <label>Categorías para incluir (Ctrl/Cmd + clic para múltiples)</label>
-        <select id="include_categories" class="multi" multiple></select>
-
-        <label style="margin-top:12px">Categorías a excluir</label>
-        <select id="exclude_categories" class="multi" multiple></select>
-      </div>
-
-      <div style="margin-top:12px;display:flex;gap:10px">
-        <button type="submit">Crear campaña</button>
-        <button type="button" id="reload">Actualizar lista</button>
-      </div>
-    </form>
-    <div id="msg" class="muted" style="margin-top:8px"></div>
-  </div>
-
-  <div class="card">
-    <h3>Campañas existentes</h3>
-    <div id="list" class="muted">Cargando…</div>
-  </div>
-
-<script>
-const $ = (s, el=document) => el.querySelector(s);
-
-function toBool(v){ return String(v) === 'true'; }
-
-function selectedIds(sel){
-  return Array.from(sel.selectedOptions).map(o => Number(o.value));
-}
-
-function formToPayload(form){
-  const fd = new FormData(form);
-  const payload = {
-    store_id: fd.get('store_id'),
-    code: fd.get('code'),
-    name: fd.get('name'),
-    discount_type: fd.get('discount_type'),
-    discount_value: Number(fd.get('discount_value')),
-    valid_from: fd.get('valid_from'),
-    valid_until: fd.get('valid_until'),
-    apply_scope: fd.get('apply_scope'),
-    min_cart_amount: Number(fd.get('min_cart_amount') || 0),
-    exclude_sale_items: toBool(fd.get('exclude_sale_items'))
-  };
-  if (payload.apply_scope === 'categories') {
-    payload.include_category_ids = selectedIds($('#include_categories'));
-    payload.exclude_category_ids = selectedIds($('#exclude_categories'));
-  }
-  return payload;
-}
-
-async function api(path, opts){ const r = await fetch(path, opts); const d = await r.json(); if(!r.ok) throw d; return d; }
-const listCampaigns = (sid) => api('/api/campaigns?store_id='+encodeURIComponent(sid));
-const fetchCategories = (sid) => api('/api/tn/categories?store_id='+encodeURIComponent(sid));
-
-function renderList(rows){
-  if(!rows || rows.length === 0){
-    $('#list').innerHTML = '<p class="muted">No hay campañas.</p>';
-    return;
-  }
-  $('#list').innerHTML = `
-    <table>
-      <thead><tr>
-        <th>Nombre</th><th>Código</th><th>Tipo</th><th>Valor</th><th>Ámbito</th><th>Vigencia</th>
-      </tr></thead>
-      <tbody>
-        ${rows.map(r => `
-          <tr>
-            <td>${r.name}</td>
-            <td><code>${r.code}</code></td>
-            <td>${r.discount_type}</td>
-            <td>${r.discount_type === 'percent' ? (r.discount_value + '%') : ('$' + r.discount_value)}</td>
-            <td>${r.apply_scope}</td>
-            <td>${r.valid_from} → ${r.valid_until}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>`;
-}
-
-async function refresh(){
-  const sid = $('input[name=store_id]').value.trim();
-  if(!sid){ $('#list').innerHTML = '<p class="muted">Ingresá Store ID arriba.</p>'; return; }
-  $('#list').textContent = 'Cargando…';
-  try{
-    const data = await listCampaigns(sid);
-    renderList(data);
-  }catch(e){
-    $('#list').innerHTML = '<p class="muted">Error cargando campañas.</p>';
-    console.error(e);
-  }
-}
-
-async function maybeLoadCats(){
-  const scope = $('#apply_scope').value;
-  const block = $('#cats_block');
-  if(scope !== 'categories'){
-    block.style.display = 'none';
-    return;
-  }
-  block.style.display = 'block';
-  const sid = $('input[name=store_id]').value.trim();
-  if(!sid){ $('#msg').textContent = 'Ingresá Store ID para cargar categorías'; return; }
-  $('#msg').textContent = 'Cargando categorías…';
-  try{
-    const cats = await fetchCategories(sid);
-    const inc = $('#include_categories'), exc = $('#exclude_categories');
-    inc.innerHTML = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-    exc.innerHTML = cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-    $('#msg').textContent = '';
-  }catch(e){
-    console.error(e);
-    $('#msg').textContent = 'No se pudieron cargar categorías';
-  }
-}
-
-$('#apply_scope').addEventListener('change', maybeLoadCats);
-$('#f').addEventListener('submit', async (ev)=>{
-  ev.preventDefault();
-  $('#msg').textContent = 'Creando…';
-  try{
-    const payload = formToPayload(ev.target);
-    await api('/api/campaigns', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify(payload)
-    });
-    $('#msg').textContent = 'Campaña creada ✅';
-    await refresh();
-  }catch(e){
-    $('#msg').textContent = 'Error: ' + (e.detail || e.message || 'No se pudo crear');
-    console.error(e);
-  }
-});
-
-$('#reload').addEventListener('click', refresh);
-window.addEventListener('load', () => { refresh(); });
-</script>
-</body>
-</html>`);
+  // IMPORTANTE: no usamos backticks en el <script> para evitar ${} y `
+  return res.end(
+    "<!doctype html>\n" +
+    "<html lang=\"es\">\n" +
+    "<head>\n" +
+    "<meta charset=\"utf-8\"/>\n" +
+    "<title>Cupones Merci</title>\n" +
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>\n" +
+    "<style>\n" +
+    "  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;padding:24px;max-width:980px;margin:auto;background:#fafafa;color:#111}\n" +
+    "  h1{margin:0 0 8px}\n" +
+    "  .card{background:#fff;border:1px solid #eee;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:16px;margin:16px 0}\n" +
+    "  label{display:block;font-size:12px;color:#555;margin-top:10px}\n" +
+    "  input,select,textarea{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;margin-top:6px}\n" +
+    "  .row{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}\n" +
+    "  .row3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}\n" +
+    "  button{background:#111;color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}\n" +
+    "  table{width:100%;border-collapse:collapse;margin-top:12px}\n" +
+    "  th,td{border-bottom:1px solid #eee;text-align:left;padding:8px}\n" +
+    "  .muted{color:#666}\n" +
+    "  .multi{min-height:120px}\n" +
+    "</style>\n" +
+    "</head>\n" +
+    "<body>\n" +
+    "  <h1>Cupones Merci " + (store_id ? ("&mdash; <small class=\"muted\">Tienda <code>" + store_id + "</code></small>") : "") + "</h1>\n" +
+    "  <p class=\"muted\">Crear y segmentar campañas por categorías.</p>\n" +
+    "\n" +
+    "  <div class=\"card\">\n" +
+    "    <h3>Nueva campaña</h3>\n" +
+    "    <form id=\"f\">\n" +
+    "      <div class=\"row\">\n" +
+    "        <div>\n" +
+    "          <label>Store ID</label>\n" +
+    "          <input name=\"store_id\" value=\"" + (store_id || "") + "\" required />\n" +
+    "        </div>\n" +
+    "        <div>\n" +
+    "          <label>Código del cupón</label>\n" +
+    "          <input name=\"code\" placeholder=\"EJ: GIMNASIO10\" required />\n" +
+    "        </div>\n" +
+    "      </div>\n" +
+    "\n" +
+    "      <label>Nombre interno</label>\n" +
+    "      <input name=\"name\" placeholder=\"EJ: Convenio Gimnasios 10%\" required />\n" +
+    "\n" +
+    "      <div class=\"row\">\n" +
+    "        <div>\n" +
+    "          <label>Tipo de descuento</label>\n" +
+    "          <select name=\"discount_type\">\n" +
+    "            <option value=\"percent\" selected>%</option>\n" +
+    "            <option value=\"fixed\">Monto fijo</option>\n" +
+    "          </select>\n" +
+    "        </div>\n" +
+    "        <div>\n" +
+    "          <label>Valor</label>\n" +
+    "          <input name=\"discount_value\" type=\"number\" step=\"1\" value=\"10\" required />\n" +
+    "        </div>\n" +
+    "      </div>\n" +
+    "\n" +
+    "      <div class=\"row\">\n" +
+    "        <div>\n" +
+    "          <label>Vigencia desde</label>\n" +
+    "          <input name=\"valid_from\" type=\"date\" required />\n" +
+    "        </div>\n" +
+    "        <div>\n" +
+    "          <label>Vigencia hasta</label>\n" +
+    "          <input name=\"valid_until\" type=\"date\" required />\n" +
+    "        </div>\n" +
+    "      </div>\n" +
+    "\n" +
+    "      <div class=\"row3\">\n" +
+    "        <div>\n" +
+    "          <label>Ámbito</label>\n" +
+    "          <select name=\"apply_scope\" id=\"apply_scope\">\n" +
+    "            <option value=\"all\" selected>Toda la tienda</option>\n" +
+    "            <option value=\"categories\">Categorías incluidas</option>\n" +
+    "            <option value=\"products\">Productos (próximo)</option>\n" +
+    "          </select>\n" +
+    "        </div>\n" +
+    "        <div>\n" +
+    "          <label>Mínimo carrito</label>\n" +
+    "          <input name=\"min_cart_amount\" type=\"number\" step=\"1\" value=\"0\" />\n" +
+    "        </div>\n" +
+    "        <div>\n" +
+    "          <label>Excluir productos en oferta</label>\n" +
+    "          <select name=\"exclude_sale_items\">\n" +
+    "            <option value=\"false\" selected>No</option>\n" +
+    "            <option value=\"true\">Sí</option>\n" +
+    "          </select>\n" +
+    "        </div>\n" +
+    "      </div>\n" +
+    "\n" +
+    "      <div id=\"cats_block\" style=\"display:none\">\n" +
+    "        <label>Categorías para incluir (Ctrl/Cmd + clic para múltiples)</label>\n" +
+    "        <select id=\"include_categories\" class=\"multi\" multiple></select>\n" +
+    "\n" +
+    "        <label style=\"margin-top:12px\">Categorías a excluir</label>\n" +
+    "        <select id=\"exclude_categories\" class=\"multi\" multiple></select>\n" +
+    "      </div>\n" +
+    "\n" +
+    "      <div style=\"margin-top:12px;display:flex;gap:10px\">\n" +
+    "        <button type=\"submit\">Crear campaña</button>\n" +
+    "        <button type=\"button\" id=\"reload\">Actualizar lista</button>\n" +
+    "      </div>\n" +
+    "    </form>\n" +
+    "    <div id=\"msg\" class=\"muted\" style=\"margin-top:8px\"></div>\n" +
+    "  </div>\n" +
+    "\n" +
+    "  <div class=\"card\">\n" +
+    "    <h3>Campañas existentes</h3>\n" +
+    "    <div id=\"list\" class=\"muted\">Cargando…</div>\n" +
+    "  </div>\n" +
+    "\n" +
+    "<script>\n" +
+    "const $ = function(s, el){ return (el||document).querySelector(s); };\n" +
+    "function toBool(v){ return String(v) === 'true'; }\n" +
+    "function selectedIds(sel){ return Array.from(sel.selectedOptions).map(function(o){ return Number(o.value); }); }\n" +
+    "function formToPayload(form){\n" +
+    "  var fd = new FormData(form);\n" +
+    "  var payload = {\n" +
+    "    store_id: fd.get('store_id'),\n" +
+    "    code: fd.get('code'),\n" +
+    "    name: fd.get('name'),\n" +
+    "    discount_type: fd.get('discount_type'),\n" +
+    "    discount_value: Number(fd.get('discount_value')),\n" +
+    "    valid_from: fd.get('valid_from'),\n" +
+    "    valid_until: fd.get('valid_until'),\n" +
+    "    apply_scope: fd.get('apply_scope'),\n" +
+    "    min_cart_amount: Number(fd.get('min_cart_amount') || 0),\n" +
+    "    exclude_sale_items: toBool(fd.get('exclude_sale_items'))\n" +
+    "  };\n" +
+    "  if (payload.apply_scope === 'categories') {\n" +
+    "    payload.include_category_ids = selectedIds($('#include_categories'));\n" +
+    "    payload.exclude_category_ids = selectedIds($('#exclude_categories'));\n" +
+    "  }\n" +
+    "  return payload;\n" +
+    "}\n" +
+    "function api(path, opts){ return fetch(path, opts).then(function(r){ return r.json().then(function(d){ if(!r.ok) throw d; return d; }); }); }\n" +
+    "function listCampaigns(sid){ return api('/api/campaigns?store_id='+encodeURIComponent(sid)); }\n" +
+    "function fetchCategories(sid){ return api('/api/tn/categories?store_id='+encodeURIComponent(sid)); }\n" +
+    "function renderList(rows){\n" +
+    "  if(!rows || rows.length === 0){ $('#list').innerHTML = '<p class=\"muted\">No hay campañas.</p>'; return; }\n" +
+    "  var html = '<table><thead><tr>' +\n" +
+    "             '<th>Nombre</th><th>Código</th><th>Tipo</th><th>Valor</th><th>Ámbito</th><th>Vigencia</th>' +\n" +
+    "             '</tr></thead><tbody>';\n" +
+    "  html += rows.map(function(r){\n" +
+    "    var val = r.discount_type === 'percent' ? (r.discount_value + '%') : ('$' + r.discount_value);\n" +
+    "    return '<tr>' +\n" +
+    "           '<td>' + r.name + '</td>' +\n" +
+    "           '<td><code>' + r.code + '</code></td>' +\n" +
+    "           '<td>' + r.discount_type + '</td>' +\n" +
+    "           '<td>' + val + '</td>' +\n" +
+    "           '<td>' + r.apply_scope + '</td>' +\n" +
+    "           '<td>' + r.valid_from + ' → ' + r.valid_until + '</td>' +\n" +
+    "           '</tr>';\n" +
+    "  }).join('');\n" +
+    "  html += '</tbody></table>';\n" +
+    "  $('#list').innerHTML = html;\n" +
+    "}\n" +
+    "function refresh(){\n" +
+    "  var sid = document.querySelector('input[name=store_id]').value.trim();\n" +
+    "  if(!sid){ $('#list').innerHTML = '<p class=\"muted\">Ingresá Store ID arriba.</p>'; return; }\n" +
+    "  $('#list').textContent = 'Cargando…';\n" +
+    "  listCampaigns(sid).then(function(data){ renderList(data); })\n" +
+    "  .catch(function(){ $('#list').innerHTML = '<p class=\"muted\">Error cargando campañas.</p>'; });\n" +
+    "}\n" +
+    "function maybeLoadCats(){\n" +
+    "  var scope = document.querySelector('#apply_scope').value;\n" +
+    "  var block = document.querySelector('#cats_block');\n" +
+    "  if(scope !== 'categories'){ block.style.display = 'none'; return; }\n" +
+    "  block.style.display = 'block';\n" +
+    "  var sid = document.querySelector('input[name=store_id]').value.trim();\n" +
+    "  if(!sid){ document.querySelector('#msg').textContent = 'Ingresá Store ID para cargar categorías'; return; }\n" +
+    "  document.querySelector('#msg').textContent = 'Cargando categorías…';\n" +
+    "  fetchCategories(sid).then(function(cats){\n" +
+    "    var inc = document.querySelector('#include_categories');\n" +
+    "    var exc = document.querySelector('#exclude_categories');\n" +
+    "    inc.innerHTML = cats.map(function(c){ return '<option value=\"'+c.id+'\">'+c.name+'</option>'; }).join('');\n" +
+    "    exc.innerHTML = cats.map(function(c){ return '<option value=\"'+c.id+'\">'+c.name+'</option>'; }).join('');\n" +
+    "    document.querySelector('#msg').textContent = '';\n" +
+    "  }).catch(function(){ document.querySelector('#msg').textContent = 'No se pudieron cargar categorías'; });\n" +
+    "}\n" +
+    "document.querySelector('#apply_scope').addEventListener('change', maybeLoadCats);\n" +
+    "document.querySelector('#f').addEventListener('submit', function(ev){\n" +
+    "  ev.preventDefault();\n" +
+    "  document.querySelector('#msg').textContent = 'Creando…';\n" +
+    "  var payload = formToPayload(ev.target);\n" +
+    "  api('/api/campaigns', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) })\n" +
+    "    .then(function(){ document.querySelector('#msg').textContent = 'Campaña creada ✅'; refresh(); })\n" +
+    "    .catch(function(e){ document.querySelector('#msg').textContent = 'Error: ' + (e.detail || e.message || 'No se pudo crear'); });\n" +
+    "});\n" +
+    "document.querySelector('#reload').addEventListener('click', refresh);\n" +
+    "window.addEventListener('load', function(){ refresh(); });\n" +
+    "</script>\n" +
+    "</body>\n" +
+    "</html>\n"
+  );
 });
 
 // -------------------- API: listar campañas --------------------
