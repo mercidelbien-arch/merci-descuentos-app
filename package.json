@@ -1,19 +1,20 @@
 {
   "name": "merci-descuentos-app",
-  "version": "0.1.0",
-  "private": true,
+  "version": "1.0.0",
+  "description": "Admin-only discounts app for Tiendanube (Render + Neon)",
+  "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node index.js",
+    "dev": "NODE_ENV=development node index.js"
   },
   "engines": {
-    "node": "18.x"
+    "node": ">=20.x"
   },
   "dependencies": {
-    "axios": "^1.7.5",
-    "cookie-session": "^2.0.0",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "pg": "^8.11.3"
+    "pg": "^8.11.5"
   }
 }
