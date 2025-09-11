@@ -1,3 +1,19 @@
+import dotenv from 'dotenv';
+import { Pool } from 'pg';
+dotenv.config();
+
+const { DATABASE_URL } = process.env;
+
+// Pool opcional (solo si hay DATABASE_URL)
+let pool = null;
+if (DATABASE_URL) {
+  pool = new Pool({
+    connectionString: DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+}
+
+
 // server.js — App Merci Descuentos (TN OAuth + Neon + Campañas c/ categorías)
 
 import express from "express";
@@ -521,6 +537,19 @@ app.get('/api/health', (_req, res) => {
       time: new Date().toISOString(),
     },
   });
+});
+
+// --- DB healthcheck (AGREGAR) ---
+app.get('/api/db/ping', async (_req, res) => {
+  if (!pool) {
+    return res.json({ ok: false, error: 'DATABASE_URL no configurada' });
+  }
+  try {
+    const r = await pool.query('SELECT 1 AS ok');
+    res.json({ ok: true, data: r.rows[0] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 
