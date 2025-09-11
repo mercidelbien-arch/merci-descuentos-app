@@ -214,6 +214,42 @@ app.get("/api/tn/categories", async (req, res) => {
   }
 });
 
+// ---------------- Registrar callback de descuentos (TN) ----------------
+app.post("/api/tn/register-callback", async (req, res) => {
+  try {
+    const store_id = String(req.body.store_id || req.query.store_id || "").trim();
+    if (!store_id) return res.status(400).json({ message: "Falta store_id" });
+
+    // buscamos el token guardado para esa tienda
+    const r = await pool.query("SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1", [store_id]);
+    if (r.rowCount === 0) return res.status(401).json({ message: "No hay token para esa tienda" });
+    const token = r.rows[0].access_token;
+
+    const callbackUrl = `${process.env.APP_BASE_URL}/discounts/callback`;
+
+    // Tiendanube: PUT /{store_id}/discounts/callbacks
+    const resp = await axios.put(
+      `https://api.tiendanube.com/v1/${store_id}/discounts/callbacks`,
+      { url: callbackUrl },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Merci Descuentos (contacto@merci.com)",
+          "Authentication": `bearer ${token}`,
+        },
+        timeout: 5000,
+      }
+    );
+
+    return res.json({ ok: true, data: resp.data || null, url: callbackUrl });
+  } catch (e) {
+    console.error("register-callback error:", e.response?.data || e.message);
+    const status = e.response?.status || 500;
+    return res.status(status).json({ ok: false, error: e.response?.data || e.message });
+  }
+});
+
+
 // -------------------- Admin (HTML con formulario) --------------------
 app.get("/admin", async (req, res) => {
   const store_id = String(req.query.store_id || "").trim();
