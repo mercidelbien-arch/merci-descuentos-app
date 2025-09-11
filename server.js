@@ -510,5 +510,19 @@ app.post("/webhooks/orders/create", (_req, res) => res.sendStatus(200));
 
 // ---------------- Start ----------------
 const PORT = process.env.PORT || 3000;
+
+// --- Healthcheck simple (AGREGAR) ---
+app.get('/api/health', (_req, res) => {
+  res.json({
+    ok: true,
+    data: {
+      status: 'ok',
+      node: process.version,
+      time: new Date().toISOString(),
+    },
+  });
+});
+
+
 // Escribila a mano si tu editor mete comillas raras
 app.listen(PORT, () => console.log('Server on http://localhost:' + PORT));
