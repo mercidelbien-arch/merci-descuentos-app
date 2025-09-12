@@ -636,6 +636,49 @@ app.post("/api/campaigns", async (req, res) => {
   }
 });
 
+// ====== Cupón propio en checkout (guardar / quitar) ======
+app.post('/api/checkout/code/set', async (req, res) => {
+  try {
+    const { checkout_id, code } = req.body || {};
+    if (!checkout_id || !code) return res.status(400).json({ ok: false, message: 'checkout_id y code son requeridos' });
+    if (!pool) return res.status(500).json({ ok: false, message: 'DB no configurada' });
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS checkout_codes (
+        checkout_id TEXT PRIMARY KEY,
+        code        TEXT NOT NULL,
+        created_at  TIMESTAMPTZ DEFAULT now()
+      )
+    `);
+
+    await pool.query(`
+      INSERT INTO checkout_codes (checkout_id, code)
+      VALUES ($1, $2)
+      ON CONFLICT (checkout_id) DO UPDATE SET code = EXCLUDED.code, created_at = now()
+    `, [checkout_id, String(code).trim().toUpperCase()]);
+
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('POST /api/checkout/code/set error:', e);
+    return res.status(500).json({ ok: false, message: 'error' });
+  }
+});
+
+app.post('/api/checkout/code/clear', async (req, res) => {
+  try {
+    const { checkout_id } = req.body || {};
+    if (!checkout_id) return res.status(400).json({ ok: false, message: 'checkout_id requerido' });
+    if (!pool) return res.status(500).json({ ok: false, message: 'DB no configurada' });
+
+    await pool.query(`DELETE FROM checkout_codes WHERE checkout_id = $1`, [checkout_id]);
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('POST /api/checkout/code/clear error:', e);
+    return res.status(500).json({ ok: false, message: 'error' });
+  }
+});
+
+
 // -------------------- Placeholders seguros --------------------
 // -------------------- Discounts Callback (aplica campañas por cupón) --------------------
 // -------------------- Discounts Callback (smoke test + lógica real) --------------------
@@ -644,22 +687,46 @@ app.post("/api/campaigns", async (req, res) => {
 // -------------------- Discounts Callback (con categorías + borra al quitar cupón) --------------------
 // -------------------- Discounts Callback (activo: categorías + borrar si no aplica) --------------------
 // -------------------- Discounts Callback (ACTIVO) --------------------
+// -------------------- Discounts Callback (usa nuestro código propio) --------------------
 app.post("/discounts/callback", async (req, res) => {
   try {
     const body = req.body || {};
     const store_id = String(body.store_id || "").trim();
-    const coupons = Array.isArray(body.coupons) ? body.coupons : [];
 
-    // Si no hay cupón → sacar nuestra promo del carrito
-    if (!store_id || coupons.length === 0) {
-      return res.json({
-        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
-      });
+    // Tomar el checkout_id desde el payload (probamos varias claves comunes)
+    const checkout_id = String(
+      body.checkout_id ||
+      (body.checkout && body.checkout.id) ||
+      body.checkout_token ||
+      body.token ||
+      ""
+    ).trim();
+
+    // Si no hay checkout_id, no podemos mapear el código → quitar promo
+    if (!checkout_id) {
+      return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
 
-    const code = String(coupons[0] || "").trim().toUpperCase();
+    // Buscar el código que guardó nuestro widget
+    let code = null;
+    if (pool) {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS checkout_codes (
+          checkout_id TEXT PRIMARY KEY,
+          code        TEXT NOT NULL,
+          created_at  TIMESTAMPTZ DEFAULT now()
+        )
+      `);
+      const r = await pool.query(`SELECT code FROM checkout_codes WHERE checkout_id = $1 LIMIT 1`, [checkout_id]);
+      if (r.rowCount > 0) code = String(r.rows[0].code || "").trim().toUpperCase();
+    }
 
-    // 1) Buscar campaña activa por tienda + código
+    // Si no hay código → sacar promo
+    if (!code) {
+      return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
+    }
+
+    // Buscar campaña activa por tienda + código
     const q = await pool.query(
       `SELECT * FROM campaigns
        WHERE store_id = $1 AND UPPER(code) = $2 AND status = 'active'
@@ -671,22 +738,17 @@ app.post("/discounts/callback", async (req, res) => {
     }
     const c = q.rows[0];
 
-    // 2) Vigencia
+    // Vigencia
     const today = new Date().toISOString().slice(0,10);
     if ((c.valid_from && today < c.valid_from) || (c.valid_until && today > c.valid_until)) {
       return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
 
-    // 3) Subtotal elegible (por categorías si aplica)
+    // Subtotal elegible (categorías si corresponde)
     const products = Array.isArray(body.products) ? body.products : [];
-
-    const parseJsonb = (v) => {
-      if (Array.isArray(v)) return v;
-      if (!v) return [];
-      try { return JSON.parse(v); } catch { return []; }
-    };
-    const inc = parseJsonb(c.include_category_ids).map(Number); // incluidas
-    const exc = parseJsonb(c.exclude_category_ids).map(Number); // excluidas
+    const parseJsonb = (v) => { if (Array.isArray(v)) return v; if (!v) return []; try { return JSON.parse(v); } catch { return []; } };
+    const inc = parseJsonb(c.include_category_ids).map(Number);
+    const exc = parseJsonb(c.exclude_category_ids).map(Number);
 
     const getCatIds = (p) => {
       if (Array.isArray(p.category_ids)) return p.category_ids.map(Number);
@@ -721,33 +783,28 @@ app.post("/discounts/callback", async (req, res) => {
       return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
 
-    // Mínimo de carrito “nuevo”
+    // Mínimos
     if (c.min_cart_amount && eligibleSubtotal < Number(c.min_cart_amount)) {
       return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
 
-    // 4) Calcular descuento
+    // Calcular descuento (sin $1, ya no usamos el nativo)
     const dtype = String(c.discount_type || 'percent').toLowerCase(); // 'percent' | 'fixed'
     const dval  = Number(c.discount_value || 0);
     let amount  = (dtype === 'percent') ? (eligibleSubtotal * dval / 100) : dval;
 
-    // Neutralizar el $1 del cupón nativo (así el total refleja SOLO nuestra regla)
-    const NATIVE_COUPON_OFFSET = 1;
-    amount = Math.max(0, amount - NATIVE_COUPON_OFFSET);
-
-    // Tope máximo si existe
+    // Tope
     if (c.max_discount_amount != null) amount = Math.min(amount, Number(c.max_discount_amount));
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
 
-    // 5) Aplicar/actualizar nuestra promo
     const currency = body.currency || "ARS";
     return res.json({
       commands: [{
         command: "create_or_update_discount",
         specs: {
-          promotion_id: PROMO_ID,            // viene de la env TN_PROMO_ID
+          promotion_id: PROMO_ID,
           currency,
           display_text: { "es-ar": `Cupón ${code}` },
           discount_specs: { type: "fixed", amount: amount.toFixed(2) }
