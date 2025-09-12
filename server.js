@@ -642,20 +642,23 @@ app.post("/api/campaigns", async (req, res) => {
 // -------------------- Discounts Callback (lógica real, sin smoke) --------------------
 // -------------------- Discounts Callback (borra al quitar cupón) --------------------
 // -------------------- Discounts Callback (con categorías + borra al quitar cupón) --------------------
+// -------------------- Discounts Callback (activo: categorías + borrar si no aplica) --------------------
 app.post("/discounts/callback", async (req, res) => {
   try {
     const body = req.body || {};
     const store_id = String(body.store_id || "").trim();
     const coupons = Array.isArray(body.coupons) ? body.coupons : [];
 
-    // Si no hay cupón -> borrar descuento previo
+    // Si no hay cupón, eliminamos la promo del carrito
     if (!store_id || coupons.length === 0) {
-      return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
+      return res.json({
+        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
+      });
     }
 
     const code = String(coupons[0] || "").trim().toUpperCase();
 
-    // Buscar campaña activa (por tienda + código)
+    // Buscar campaña activa
     const q = await pool.query(
       `SELECT * FROM campaigns
        WHERE store_id = $1 AND UPPER(code) = $2 AND status = 'active'
@@ -663,30 +666,32 @@ app.post("/discounts/callback", async (req, res) => {
       [store_id, code]
     );
     if (q.rowCount === 0) {
-      return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
+      return res.json({
+        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
+      });
     }
     const c = q.rows[0];
 
     // Vigencia
     const today = new Date().toISOString().slice(0,10);
     if ((c.valid_from && today < c.valid_from) || (c.valid_until && today > c.valid_until)) {
-      return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
+      return res.json({
+        commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
+      });
     }
 
     // ---- Subtotal elegible por categorías (si la campaña es "categories") ----
     const products = Array.isArray(body.products) ? body.products : [];
 
-    // helpers
     const parseJsonb = (v) => {
       if (Array.isArray(v)) return v;
       if (!v) return [];
       try { return JSON.parse(v); } catch { return []; }
     };
-    const inc = parseJsonb(c.include_category_ids).map(Number); // categorías incluidas
-    const exc = parseJsonb(c.exclude_category_ids).map(Number); // categorías excluidas
+    const inc = parseJsonb(c.include_category_ids).map(Number);
+    const exc = parseJsonb(c.exclude_category_ids).map(Number);
 
     const getCatIds = (p) => {
-      // Tiendanube puede mandar category_ids o un arreglo de categories con {id, ...}
       if (Array.isArray(p.category_ids)) return p.category_ids.map(Number);
       if (Array.isArray(p.categories)) {
         const ids = [];
@@ -715,7 +720,6 @@ app.post("/discounts/callback", async (req, res) => {
       if (ok) eligibleSubtotal += price * qty;
     }
 
-    // Sin base o no alcanza mínimo -> borrar
     if (!eligibleSubtotal || eligibleSubtotal <= 0) {
       return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
@@ -723,12 +727,16 @@ app.post("/discounts/callback", async (req, res) => {
       return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
     }
 
-    // Calcular descuento (porcentaje o monto fijo) sobre el subtotal elegible
+    // Calcular descuento
     const dtype = String(c.discount_type || 'percent').toLowerCase(); // 'percent' | 'fixed'
     const dval  = Number(c.discount_value || 0);
     let amount  = (dtype === 'percent') ? (eligibleSubtotal * dval / 100) : dval;
 
-    // Tope máximo, si existe
+    // Neutralizar el $1 del cupón nativo para que el total refleje SOLO nuestra regla
+    const NATIVE_COUPON_OFFSET = 1;           // si cambiás el cupón nativo, ajustá este valor
+    if (coupons.length > 0) amount = Math.max(0, amount - NATIVE_COUPON_OFFSET);
+
+    // Tope máximo si existe
     if (c.max_discount_amount != null) amount = Math.min(amount, Number(c.max_discount_amount));
     if (!Number.isFinite(amount) || amount <= 0) {
       return res.json({ commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }] });
@@ -739,7 +747,7 @@ app.post("/discounts/callback", async (req, res) => {
       commands: [{
         command: "create_or_update_discount",
         specs: {
-          promotion_id: PROMO_ID,
+          promotion_id: PROMO_ID,          // viene de la env TN_PROMO_ID
           currency,
           display_text: { "es-ar": `Cupón ${code}` },
           discount_specs: { type: "fixed", amount: amount.toFixed(2) }
@@ -748,12 +756,12 @@ app.post("/discounts/callback", async (req, res) => {
     });
   } catch (e) {
     console.error("discounts/callback error:", e);
-    // ante error, eliminar descuento para no dejarlo pegado
     return res.json({
-      commands: [{ command: "delete_discount", specs: {promotion_id: PROMO_ID} }]
+      commands: [{ command: "delete_discount", specs: { promotion_id: PROMO_ID } }]
     });
   }
 });
+
 
 app.post("/webhooks/orders/create", (_req, res) => res.sendStatus(200));
 
