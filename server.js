@@ -31,6 +31,10 @@ const app = express();
 app.set("trust proxy", 1);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+import cors from "cors";
+// ...
+app.use(cors()); // habilita requests desde el Checkout a tu API
+
 app.use(
   cookieSession({
     name: "sess",
