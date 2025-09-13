@@ -312,6 +312,7 @@ app.get("/api/tn/promotions/register-base", async (req, res) => {
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
+// --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 app.all("/api/tn/scripts/install", async (req, res) => {
   try {
     const store_id = String((req.body && req.body.store_id) || req.query.store_id || "").trim();
@@ -337,43 +338,40 @@ app.all("/api/tn/scripts/install", async (req, res) => {
       enabled: true,
     };
 
-    // 1) Intentamos crear primero
+    // 1) Listar scripts y borrar cualquier checkout/onload existente
     try {
-      const created = await axios.post(`${base}/scripts`, payload, { headers });
-      return res.json({ ok:true, action:"created", data: created.data });
-    } catch (e1) {
-      // 2) Si falla, listamos y actualizamos si existe uno similar
       const listRes = await axios.get(`${base}/scripts`, { headers });
-
-      // Parseo seguro de la lista
       const raw = listRes.data;
-      const list = Array.isArray(raw)
-        ? raw
-        : (raw?.scripts || raw?.data || raw?.results || []);
-
-      const same = Array.isArray(list)
-        ? list.find(s => s && s.location === "checkout" && s.event === "onload")
-        : null;
-
-      if (same) {
-        const sid = same.id || same.script_id; // <-- tomar el id correcto
-        if (!sid) throw new Error("No se pudo obtener el script_id del listado");
-
-        const updateBody = { ...payload, script_id: sid }; // algunos entornos lo piden
-        const upd = await axios.put(`${base}/scripts/${sid}`, updateBody, { headers });
-        return res.json({ ok:true, action:"updated", data: upd.data });
+      const list = Array.isArray(raw) ? raw : (raw?.scripts || raw?.data || raw?.results || []);
+      if (Array.isArray(list)) {
+        for (const s of list) {
+          const isCheckoutOnload =
+            s && (s.location === "checkout") && (s.event === "onload");
+          const sid = s?.id || s?.script_id;
+          if (isCheckoutOnload && sid) {
+            try {
+              await axios.delete(`${base}/scripts/${sid}`, { headers });
+            } catch (_) {
+              // si falla el delete, seguimos de todas formas
+            }
+          }
+        }
       }
-
-      // Si no existe uno similar, reintentamos crear
-      const created2 = await axios.post(`${base}/scripts`, payload, { headers });
-      return res.json({ ok:true, action:"created", data: created2.data });
+    } catch (_) {
+      // si falla el listado, igual seguimos a crear
     }
+
+    // 2) Crear el script limpio
+    const created = await axios.post(`${base}/scripts`, payload, { headers });
+    return res.json({ ok:true, action:"recreated", data: created.data });
+
   } catch (e) {
     console.error("scripts/install error:", e.response?.data || e.message);
     const status = e.response?.status || 500;
     return res.status(status).json({ ok:false, error: e.response?.data || e.message });
   }
 });
+
 
 
 
