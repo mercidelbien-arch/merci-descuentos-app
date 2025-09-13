@@ -308,6 +308,32 @@ app.get("/api/tn/promotions/register-base", async (req, res) => {
   }
 });
 
+// --- DEBUG: listar scripts crudos tal cual responde TN
+app.get("/api/tn/scripts/list", async (req, res) => {
+  try {
+    const store_id = String(req.query.store_id || "").trim();
+    if (!store_id) return res.status(400).json({ ok:false, error:"Falta store_id" });
+
+    const r = await pool.query("SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1", [store_id]);
+    if (r.rowCount === 0) return res.status(401).json({ ok:false, error:"No hay token para esa tienda" });
+    const token = r.rows[0].access_token;
+
+    const base = `https://api.tiendanube.com/v1/${store_id}`;
+    const headers = {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "User-Agent": "Merci Descuentos (andres.barba82@gmail.com)",
+      "Authentication": `bearer ${token}`,
+    };
+
+    const listRes = await axios.get(`${base}/scripts`, { headers });
+    // devolvemos crudo para ver la forma real
+    return res.json({ ok:true, raw:listRes.data });
+  } catch (e) {
+    return res.status(e.response?.status || 500).json({ ok:false, error: e.response?.data || e.message });
+  }
+});
+
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
