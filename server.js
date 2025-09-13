@@ -310,6 +310,7 @@ app.get("/api/tn/promotions/register-base", async (req, res) => {
 
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
+// --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 app.all("/api/tn/scripts/install", async (req, res) => {
   try {
     const store_id = String((req.body && req.body.store_id) || req.query.store_id || "").trim();
@@ -334,15 +335,15 @@ app.all("/api/tn/scripts/install", async (req, res) => {
       enabled: true,
     };
 
-    // 1) Intentar crear
+    // 1) Intentar crear primero
     try {
       const created = await axios.post(`${base}/scripts`, payload, { headers });
       return res.json({ ok:true, action:"created", data: created.data });
     } catch (e1) {
-      // 2) Si ya existe u otro error, listamos y actualizamos si corresponde
+      // 2) Si falla, listamos y actualizamos si existe uno similar
       const listRes = await axios.get(`${base}/scripts`, { headers });
 
-      // 🔧 Parseo seguro (a veces es array, a veces viene dentro de una clave)
+      // Parseo seguro de la lista
       const raw = listRes.data;
       const list = Array.isArray(raw)
         ? raw
@@ -353,11 +354,12 @@ app.all("/api/tn/scripts/install", async (req, res) => {
         : null;
 
       if (same && same.id) {
-        const upd = await axios.put(`${base}/scripts/${same.id}`, payload, { headers });
+        const updateBody = { ...payload, script_id: same.id }; // <-- requerido por TN
+        const upd = await axios.put(`${base}/scripts/${same.id}`, updateBody, { headers });
         return res.json({ ok:true, action:"updated", data: upd.data });
       }
 
-      // Si no encontramos nada para actualizar, reintentar crear y devolver error si falla
+      // Si no existe uno similar, reintentamos crear
       const created2 = await axios.post(`${base}/scripts`, payload, { headers });
       return res.json({ ok:true, action:"created", data: created2.data });
     }
@@ -367,6 +369,7 @@ app.all("/api/tn/scripts/install", async (req, res) => {
     return res.status(status).json({ ok:false, error: e.response?.data || e.message });
   }
 });
+
 
 
 // -------------------- Admin (HTML con formulario) --------------------
