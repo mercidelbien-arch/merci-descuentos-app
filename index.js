@@ -100,6 +100,19 @@ app.post('/api/discounts/apply', async (req, res) => {
 // Servir el widget desde /widget/...
 app.use('/widget', express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
 
+// Fallback explícito por si el static no lo encuentra
+import fs from 'fs';
+
+app.get('/widget/merci-checkout-coupon-widget.js', (req, res) => {
+  const filePath = path.join(__dirname, 'public', 'merci-checkout-coupon-widget.js');
+  if (fs.existsSync(filePath)) {
+    res.type('application/javascript').sendFile(filePath);
+  } else {
+    res.status(404).send('Widget file not found at ' + filePath);
+  }
+});
+
+
 // Home
 app.get('/', (_req, res) => res.send('Merci Descuentos API'));
 
