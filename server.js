@@ -339,9 +339,10 @@ app.get("/api/tn/scripts/list", async (req, res) => {
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
+// --- TN: instalar Script definido en Partner por script_id (checkout/onload) ---
 app.all("/api/tn/scripts/install", async (req, res) => {
   try {
-    const store_id = String((req.body && req.body.store_id) || req.query.store_id || "").trim();
+    const store_id = String((req.body?.store_id) || req.query.store_id || "").trim();
     if (!store_id) return res.status(400).json({ ok:false, error:"Falta store_id" });
 
     // token de la tienda
@@ -357,42 +358,23 @@ app.all("/api/tn/scripts/install", async (req, res) => {
       "Authentication": `bearer ${token}`,
     };
 
-    const payload = {
-      src: `${process.env.APP_BASE_URL}/widget/merci-checkout-coupon-widget.js`,
-      location: "checkout",
-      event: "onload",
-      enabled: true,
-    };
+    // 1) Listar scripts disponibles (de tu app) y tomar el nuestro por nombre/id
+    const listRes = await axios.get(`${base}/scripts`, { headers });
+    const list = Array.isArray(listRes.data?.result) ? listRes.data.result : [];
+    const target = list.find(s => String(s?.name || "").toLowerCase().includes("merci checkout widget")) || list[0];
+    const scriptId = target?.id || target?.script_id;
+    if (!scriptId) return res.status(400).json({ ok:false, error:"No encontré script_id en la lista" });
 
-    // 1) Listar scripts y borrar cualquier checkout/onload existente
+    // 2) Si ya hay una instalación previa para este script, la habilitamos; si no, lo instalamos
+    // (algunas cuentas permiten PUT /scripts/{id} con {script_id, enabled}; otras requieren POST con {script_id})
     try {
-      const listRes = await axios.get(`${base}/scripts`, { headers });
-      const raw = listRes.data;
-      const list = Array.isArray(raw) ? raw : (raw?.scripts || raw?.data || raw?.results || []);
-      if (Array.isArray(list)) {
-        for (const s of list) {
-          const isCheckoutOnload =
-            s && (s.location === "checkout") && (s.event === "onload");
-          const sid = s?.id || s?.script_id;
-          if (isCheckoutOnload && sid) {
-            try {
-              await axios.delete(`${base}/scripts/${sid}`, { headers });
-            } catch (_) {
-              // si falla el delete, seguimos de todas formas
-            }
-          }
-        }
-      }
-    } catch (_) {
-      // si falla el listado, igual seguimos a crear
+      const upd = await axios.put(`${base}/scripts/${scriptId}`, { script_id: scriptId, enabled: true }, { headers });
+      return res.json({ ok:true, action:"updated_by_id", data: upd.data });
+    } catch {
+      const created = await axios.post(`${base}/scripts`, { script_id: scriptId, enabled: true }, { headers });
+      return res.json({ ok:true, action:"created_by_id", data: created.data });
     }
-
-    // 2) Crear el script limpio
-    const created = await axios.post(`${base}/scripts`, payload, { headers });
-    return res.json({ ok:true, action:"recreated", data: created.data });
-
   } catch (e) {
-    console.error("scripts/install error:", e.response?.data || e.message);
     const status = e.response?.status || 500;
     return res.status(status).json({ ok:false, error: e.response?.data || e.message });
   }
