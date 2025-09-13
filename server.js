@@ -8,6 +8,12 @@ import crypto from "crypto";
 import "dotenv/config";      // única carga de variables .env
 import { Pool } from "pg";
 
+import path from "path";
+import { fileURLToPath } from "url";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+
 const PROMO_ID = process.env.TN_PROMO_ID || "1c508de3-84a0-4414-9c75-c2aee4814fcd";
 
 // -------------------- DB (Neon) --------------------
@@ -32,6 +38,12 @@ app.use(
     httpOnly: true,
     sameSite: "lax",
   })
+);
+
+// Servir el widget desde /widget/...
+app.use(
+  "/widget",
+  express.static(path.join(__dirname, "public"), { maxAge: "1h" })
 );
 
 // -------------------- Salud --------------------
