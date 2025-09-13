@@ -381,6 +381,44 @@ app.all("/api/tn/scripts/install", async (req, res) => {
 });
 
 
+// --- TN: instalar/activar un Script por ID (cuando NO es auto-install)
+app.all("/api/tn/scripts/install/by-id", async (req, res) => {
+  try {
+    const store_id = String((req.body?.store_id) || req.query.store_id || "").trim();
+    const script_id = String((req.body?.script_id) || req.query.script_id || "").trim();
+
+    if (!store_id) return res.status(400).json({ ok:false, error:"Falta store_id" });
+    if (!script_id) return res.status(400).json({ ok:false, error:"Falta script_id" });
+
+    const r = await pool.query("SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1", [store_id]);
+    if (r.rowCount === 0) return res.status(401).json({ ok:false, error:"No hay token para esa tienda" });
+    const token = r.rows[0].access_token;
+
+    const base = `https://api.tiendanube.com/v1/${store_id}`;
+    const headers = {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "User-Agent": "Merci Descuentos (andres.barba82@gmail.com)",
+      "Authentication": `bearer ${token}`,
+    };
+
+    // Intentar actualizar si ya existe la instalación
+    try {
+      const upd = await axios.put(`${base}/scripts/${script_id}`, { script_id, enabled: true }, { headers });
+      return res.json({ ok:true, action:"updated_by_id", data: upd.data });
+    } catch (e1) {
+      // Si no existe, crear instalación
+      try {
+        const created = await axios.post(`${base}/scripts`, { script_id, enabled: true }, { headers });
+        return res.json({ ok:true, action:"created_by_id", data: created.data });
+      } catch (e2) {
+        return res.status(e2.response?.status || 500).json({ ok:false, error: e2.response?.data || e2.message });
+      }
+    }
+  } catch (e) {
+    return res.status(e.response?.status || 500).json({ ok:false, error: e.response?.data || e.message });
+  }
+});
 
 
 
