@@ -311,6 +311,7 @@ app.get("/api/tn/promotions/register-base", async (req, res) => {
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
+// --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 app.all("/api/tn/scripts/install", async (req, res) => {
   try {
     const store_id = String((req.body && req.body.store_id) || req.query.store_id || "").trim();
@@ -324,6 +325,7 @@ app.all("/api/tn/scripts/install", async (req, res) => {
     const base = `https://api.tiendanube.com/v1/${store_id}`;
     const headers = {
       "Content-Type": "application/json",
+      "Accept": "application/json",
       "User-Agent": "Merci Descuentos (andres.barba82@gmail.com)",
       "Authentication": `bearer ${token}`,
     };
@@ -335,7 +337,7 @@ app.all("/api/tn/scripts/install", async (req, res) => {
       enabled: true,
     };
 
-    // 1) Intentar crear primero
+    // 1) Intentamos crear primero
     try {
       const created = await axios.post(`${base}/scripts`, payload, { headers });
       return res.json({ ok:true, action:"created", data: created.data });
@@ -353,9 +355,12 @@ app.all("/api/tn/scripts/install", async (req, res) => {
         ? list.find(s => s && s.location === "checkout" && s.event === "onload")
         : null;
 
-      if (same && same.id) {
-        const updateBody = { ...payload, script_id: same.id }; // <-- requerido por TN
-        const upd = await axios.put(`${base}/scripts/${same.id}`, updateBody, { headers });
+      if (same) {
+        const sid = same.id || same.script_id; // <-- tomar el id correcto
+        if (!sid) throw new Error("No se pudo obtener el script_id del listado");
+
+        const updateBody = { ...payload, script_id: sid }; // algunos entornos lo piden
+        const upd = await axios.put(`${base}/scripts/${sid}`, updateBody, { headers });
         return res.json({ ok:true, action:"updated", data: upd.data });
       }
 
@@ -369,6 +374,7 @@ app.all("/api/tn/scripts/install", async (req, res) => {
     return res.status(status).json({ ok:false, error: e.response?.data || e.message });
   }
 });
+
 
 
 
