@@ -11,7 +11,7 @@
   /* ========= CONFIGURACIÓN BÁSICA (AJUSTAR) ================================ */
   // 🔧 Reemplazá por tu URL pública de Render (sin / al final)
   // Ej: "https://merci-descuentos.onrender.com"
-  const API_BASE = "https://TU-APP-RENDER.onrender.com";
+  const API_BASE = "https://merci-descuentos-app.onrender.com";
 
   // Endpoint que valida/aplica cupones. Debe devolver: { ok, code, amount, label }
   // - amount: número NEGATIVO si es descuento (ej: -123.45)
