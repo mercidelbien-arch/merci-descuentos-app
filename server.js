@@ -309,12 +309,13 @@ app.get("/api/tn/promotions/register-base", async (req, res) => {
 });
 
 // --- TN: instalar Script del widget en la tienda (checkout/onload) ---
+// --- TN: instalar Script del widget en la tienda (checkout/onload) ---
 app.all("/api/tn/scripts/install", async (req, res) => {
   try {
     const store_id = String((req.body && req.body.store_id) || req.query.store_id || "").trim();
     if (!store_id) return res.status(400).json({ ok:false, error:"Falta store_id" });
 
-    // Buscar token guardado para esa tienda
+    // token de la tienda
     const r = await pool.query("SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1", [store_id]);
     if (r.rowCount === 0) return res.status(401).json({ ok:false, error:"No hay token para esa tienda" });
     const token = r.rows[0].access_token;
@@ -323,32 +324,42 @@ app.all("/api/tn/scripts/install", async (req, res) => {
     const headers = {
       "Content-Type": "application/json",
       "User-Agent": "Merci Descuentos (andres.barba82@gmail.com)",
-      "Authentication": `bearer ${token}`
+      "Authentication": `bearer ${token}`,
     };
 
     const payload = {
       src: `${process.env.APP_BASE_URL}/widget/merci-checkout-coupon-widget.js`,
       location: "checkout",
       event: "onload",
-      enabled: true
+      enabled: true,
     };
 
-    // 1) Intentamos crearlo
+    // 1) Intentar crear
     try {
       const created = await axios.post(`${base}/scripts`, payload, { headers });
       return res.json({ ok:true, action:"created", data: created.data });
     } catch (e1) {
-      // 2) Si ya existe, lo actualizamos (upsert naive)
-      const list = await axios.get(`${base}/scripts`, { headers });
-      const same = (list.data || []).find(s =>
-        (s.location === "checkout") && (s.event === "onload")
-      );
-      if (same) {
+      // 2) Si ya existe u otro error, listamos y actualizamos si corresponde
+      const listRes = await axios.get(`${base}/scripts`, { headers });
+
+      // 🔧 Parseo seguro (a veces es array, a veces viene dentro de una clave)
+      const raw = listRes.data;
+      const list = Array.isArray(raw)
+        ? raw
+        : (raw?.scripts || raw?.data || raw?.results || []);
+
+      const same = Array.isArray(list)
+        ? list.find(s => s && s.location === "checkout" && s.event === "onload")
+        : null;
+
+      if (same && same.id) {
         const upd = await axios.put(`${base}/scripts/${same.id}`, payload, { headers });
         return res.json({ ok:true, action:"updated", data: upd.data });
       }
-      // Si falló por otra razón, devolvemos el error original
-      throw e1;
+
+      // Si no encontramos nada para actualizar, reintentar crear y devolver error si falla
+      const created2 = await axios.post(`${base}/scripts`, payload, { headers });
+      return res.json({ ok:true, action:"created", data: created2.data });
     }
   } catch (e) {
     console.error("scripts/install error:", e.response?.data || e.message);
