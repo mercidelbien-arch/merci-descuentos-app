@@ -829,6 +829,66 @@ app.post("/discounts/callback", async (req, res) => {
   }
 });
 
+// === Endpoint que usa el widget para validar/aplicar cupones ===
+// Body: { code, subtotal, items: [...] }
+// Respuesta: { ok, code, amount (NEGATIVO), label }
+app.post("/api/discounts/apply", async (req, res) => {
+  try {
+    const { code, subtotal } = req.body || {};
+    const normCode = String(code || "").trim().toUpperCase();
+    const sub = Number(subtotal || 0);
+
+    if (!normCode || !Number.isFinite(sub) || sub <= 0) {
+      return res.status(400).json({ ok: false, error: "bad_request" });
+    }
+    if (!pool) return res.status(500).json({ ok: false, error: "db_unavailable" });
+
+    // Buscamos la campaña más reciente con ese código (status activo)
+    const q = await pool.query(
+      `SELECT code, discount_type, discount_value,
+              max_discount_amount, min_cart_amount, label
+         FROM campaigns
+        WHERE UPPER(code) = $1 AND status = 'active'
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [normCode]
+    );
+    if (q.rowCount === 0) {
+      return res.json({ ok: false, code: normCode, reason: "not_found_or_inactive" });
+    }
+    const c = q.rows[0];
+
+    // Mínimo de carrito, si aplica
+    if (c.min_cart_amount != null && Number(c.min_cart_amount) > 0 && sub < Number(c.min_cart_amount)) {
+      return res.json({ ok: false, code: normCode, reason: "min_subtotal" });
+    }
+
+    // Cálculo del descuento
+    const dtype = String(c.discount_type || "percent").toLowerCase(); // 'percent' | 'fixed'
+    const dval  = Number(c.discount_value || 0);
+
+    let discount = dtype === "percent" ? (sub * dval / 100) : dval;
+    if (c.max_discount_amount != null && Number(c.max_discount_amount) > 0) {
+      discount = Math.min(discount, Number(c.max_discount_amount));
+    }
+    discount = Math.max(0, Number(discount || 0));
+
+    if (!Number.isFinite(discount) || discount <= 0) {
+      return res.json({ ok: false, code: normCode, reason: "no_benefit" });
+    }
+
+    // El widget espera monto NEGATIVO para la línea de descuento
+    return res.json({
+      ok: true,
+      code: c.code,
+      amount: -discount,
+      label: c.label || `Cupón ${c.code}`
+    });
+  } catch (e) {
+    console.error("POST /api/discounts/apply error:", e);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
 
 
 app.post("/webhooks/orders/create", (_req, res) => res.sendStatus(200));
