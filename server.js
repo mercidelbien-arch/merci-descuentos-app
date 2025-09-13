@@ -420,6 +420,38 @@ app.all("/api/tn/scripts/install/by-id", async (req, res) => {
   }
 });
 
+// --- TN: instalar script DIRECTO en la tienda (sin script_id del Partner)
+app.all("/api/tn/scripts/install/direct", async (req, res) => {
+  try {
+    const store_id = String(req.body?.store_id || req.query.store_id || "").trim();
+    if (!store_id) return res.status(400).json({ ok:false, error:"Falta store_id" });
+
+    // Podés sobreescribir por query: ?src=URL&name=...&event=onload&location=checkout
+    const src = String(req.body?.src || req.query.src || `${process.env.APP_BASE_URL}/widget/merci-checkout-coupon-widget.js`).trim();
+    const name = String(req.body?.name || req.query.name || "Merci Checkout Widget (direct)").trim();
+    const event = String(req.body?.event || req.query.event || "onload").trim();
+    const location = String(req.body?.location || req.query.location || "checkout").trim();
+
+    const r = await pool.query("SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1", [store_id]);
+    if (r.rowCount === 0) return res.status(401).json({ ok:false, error:"No hay token para esa tienda" });
+    const token = r.rows[0].access_token;
+
+    const base = `https://api.tiendanube.com/v1/${store_id}`;
+    const headers = {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "User-Agent": "Merci Descuentos (andres.barba82@gmail.com)",
+      "Authentication": `bearer ${token}`,
+    };
+
+    const body = { name, src, event, location, enabled: true };
+    const created = await axios.post(`${base}/scripts`, body, { headers });
+    return res.json({ ok:true, action:"created_direct", data: created.data });
+  } catch (e) {
+    const status = e.response?.status || 500;
+    return res.status(status).json({ ok:false, error: e.response?.data || e.message });
+  }
+});
 
 
 // -------------------- Admin (HTML con formulario) --------------------
