@@ -16,7 +16,7 @@
   // Endpoint que valida/aplica cupones. Debe devolver: { ok, code, amount, label }
   // - amount: número NEGATIVO si es descuento (ej: -123.45)
   // - label: texto a mostrar en la línea de descuento (ej: "Cupón MERCI-10")
-  const APPLY_ENDPOINT = "/api/discounts/apply";
+  const APPLY_ENDPOINT = "/api/checkout/code/set";
 
   // Identificador único de la línea de descuento que inyecta el widget
   const DISCOUNT_LINE_ID = "merci-discount-line";
