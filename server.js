@@ -1,6 +1,5 @@
 // server.js — App Merci Descuentos (TN OAuth + Neon + Campañas c/ categorías)
 // ESM + Render estable. Incluye /api/health, /api/db/ping y /api/db/migrate.
-
 import express from "express";
 import cookieSession from "cookie-session";
 import axios from "axios";
@@ -12,7 +11,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
+const path = require('path');
 
 const PROMO_ID = process.env.TN_PROMO_ID || "1c508de3-84a0-4414-9c75-c2aee4814fcd";
 
@@ -32,6 +31,12 @@ app.set("trust proxy", 1);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/widget', express.static('public'));
+const adminDist = path.join(__dirname, 'admin', 'dist');
+app.use('/admin', express.static(adminDist));
+app.get('/admin/*', (req, res) => {
+  res.sendFile(path.join(adminDist, 'index.html'));
+});
+
 import cors from "cors";
 // ...
 app.use(cors()); // habilita requests desde el Checkout a tu API
