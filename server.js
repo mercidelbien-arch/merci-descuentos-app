@@ -39,7 +39,6 @@ app.get('/admin/*', (req, res) => {
   res.sendFile(path.join(adminDist, 'index.html'));
 });
 
-import cors from "cors";
 // ...
 app.use(cors()); // habilita requests desde el Checkout a tu API
 
