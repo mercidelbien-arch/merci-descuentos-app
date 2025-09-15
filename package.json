@@ -4,12 +4,10 @@
   "description": "Aplicación Merci Descuentos para Tiendanube (cupones, campañas y reglas personalizadas).",
   "type": "module",
   "main": "server.js",
-"scripts": {
-  "start": "node server.js",
-  "dev": "nodemon server.js",
-  "postinstall": "npm --prefix admin install && npm --prefix admin run build"
-}
-
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "postinstall": "npm --prefix admin install && npm --prefix admin run build"
   },
   "dependencies": {
     "axios": "^1.7.2",
@@ -27,4 +25,3 @@
     "node": ">=18.0.0"
   }
 }
-
