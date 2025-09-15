@@ -7,7 +7,16 @@
 
 (function () {
   "use strict";
+function getCheckoutId() {
+  try {
+    if (window.__PRELOADED_STATE__?.checkout?.id) return String(window.__PRELOADED_STATE__.checkout.id);
+    if (window.checkout?.id) return String(window.checkout.id);
+    var parts = location.pathname.split('/').filter(Boolean);
+    return parts[parts.length - 1] || 'unknown';
+  } catch { return 'unknown'; }
+}
 
+  
   /* ========= CONFIGURACIÓN BÁSICA (AJUSTAR) ================================ */
   // 🔧 Reemplazá por tu URL pública de Render (sin / al final)
   // Ej: "https://merci-descuentos.onrender.com"
@@ -191,7 +200,7 @@
         const res = await fetch(`${API_BASE}${APPLY_ENDPOINT}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code, subtotal, items }),
+          body: JSON.stringify({ checkout_id: getCheckoutId(), code }),
           credentials: "omit",
         });
 
