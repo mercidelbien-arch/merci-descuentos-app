@@ -1,10 +1,8 @@
 // server.js — App Merci Descuentos (TN OAuth + Neon + Campañas c/ categorías)
 // ESM + Render estable. Incluye /api/health, /api/db/ping y /api/db/migrate.
+// server.js — App Merci Descuentos (TN OAuth + Neon + Campañas c/ categorías)
+// ESM + Render estable. Incluye /api/health, /api/db/ping y /api/db/migrate.
 import path from 'path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -13,12 +11,9 @@ import express from "express";
 import cookieSession from "cookie-session";
 import axios from "axios";
 import crypto from "crypto";
-import "dotenv/config";      // única carga de variables .env
+import "dotenv/config";
 import { Pool } from "pg";
-
-import { fileURLToPath } from "url";
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import cors from "cors";
 
 const PROMO_ID = process.env.TN_PROMO_ID || "1c508de3-84a0-4414-9c75-c2aee4814fcd";
 
