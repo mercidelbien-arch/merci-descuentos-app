@@ -76,6 +76,19 @@ app.get("/api/db/ping", async (_req, res) => {
   }
 });
 
+// DEBUG: ver tiendas guardadas (últimas 5)
+app.get("/api/debug/stores", async (_req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ ok:false, error:"DB no configurada" });
+    const r = await pool.query(
+      "SELECT store_id, created_at FROM stores ORDER BY created_at DESC LIMIT 5"
+    );
+    res.json({ ok:true, stores: r.rows });
+  } catch (e) {
+    res.status(500).json({ ok:false, error: e.message });
+  }
+});
+
 // -------------------- MIGRACIONES (crear tablas) --------------------
 const MIGRATE_SQL = `
   CREATE EXTENSION IF NOT EXISTS pgcrypto;
