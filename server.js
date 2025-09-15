@@ -503,6 +503,157 @@ app.all("/api/tn/scripts/install/direct", async (req, res) => {
   }
 });
 
+// ========= Helpers TN =========
+function tnBase(store_id) {
+  return `https://api.tiendanube.com/v1/${store_id}`;
+}
+function tnHeaders(token) {
+  return {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "User-Agent": "Merci Descuentos (andres.barba82@gmail.com)",
+    "Authentication": `bearer ${token}`,
+  };
+}
+async function getStoreTokenOrThrow(store_id) {
+  if (!pool) throw new Error("DB no configurada");
+  const r = await pool.query("SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1", [store_id]);
+  if (r.rowCount === 0) throw new Error("No hay token para esa tienda");
+  return r.rows[0].access_token;
+}
+
+// ========= Crear promoción nativa + (opcional) cargar códigos =========
+// Crea una promoción "nativa" de TN (ej: 10% con código) y opcionalmente sube una lista de códigos.
+app.post("/api/tn/promotions/create-native", async (req, res) => {
+  try {
+    const {
+      store_id,
+      name = "Merci – Cupones",
+      // descuento:
+      discount_type = "percent",         // "percent" | "fixed"
+      discount_value = 10,               // número
+      // vigencia:
+      valid_from = null,                 // ej "2025-09-15"
+      valid_until = null,                // ej "2025-12-31"
+      // alcance:
+      allocation_type = "cross_items",   // 'cross_items' | 'line_item' | 'shipping_line'
+      // opcional: crear ya los códigos
+      codes = []                         // ['GIMNASIO10', 'BANCO20', ...]
+    } = req.body || {};
+
+    if (!store_id) return res.status(400).json({ ok:false, error:"Falta store_id" });
+
+    const token = await getStoreTokenOrThrow(String(store_id).trim());
+    const base = tnBase(store_id);
+    const headers = tnHeaders(token);
+
+    // 1) Crear promoción
+    const promoBody = {
+      name,
+      allocation_type,         // dónde impacta el descuento
+      // El “descuento” suele definirse a nivel promoción:
+      discount_type,           // "percent" | "fixed"
+      discount_value,          // numérico
+      // Fechas (si las pasás, se guardan; si no, quedan abiertas)
+      valid_from,
+      valid_until
+    };
+
+    const createdPromo = await axios.post(`${base}/promotions`, promoBody, { headers });
+    const promo = createdPromo.data || {};
+    const promotion_id = promo.id;
+
+    // 2) Si mandaron códigos, intentar cargarlos
+    let addCodesResult = null;
+    if (Array.isArray(codes) && codes.length > 0) {
+      addCodesResult = await addCodesRobusto({ base, headers, promotion_id, codes });
+    }
+
+    return res.json({
+      ok: true,
+      promotion: promo,
+      added_codes: addCodesResult
+    });
+  } catch (e) {
+    const status = e.response?.status || 500;
+    return res.status(status).json({ ok:false, error: e.response?.data || e.message });
+  }
+});
+
+// ========= Agregar muchos códigos a una promoción existente =========
+app.post("/api/tn/promotions/add-codes", async (req, res) => {
+  try {
+    const { store_id, promotion_id, codes = [] } = req.body || {};
+    if (!store_id) return res.status(400).json({ ok:false, error:"Falta store_id" });
+    if (!promotion_id) return res.status(400).json({ ok:false, error:"Falta promotion_id" });
+    if (!Array.isArray(codes) || codes.length === 0) return res.status(400).json({ ok:false, error:"Faltan codes[]" });
+
+    const token = await getStoreTokenOrThrow(String(store_id).trim());
+    const base = tnBase(store_id);
+    const headers = tnHeaders(token);
+
+    const added = await addCodesRobusto({ base, headers, promotion_id, codes });
+    return res.json({ ok:true, added });
+  } catch (e) {
+    const status = e.response?.status || 500;
+    return res.status(status).json({ ok:false, error: e.response?.data || e.message });
+  }
+});
+
+// ========= Listar promociones rápidas =========
+app.get("/api/tn/promotions/list", async (req, res) => {
+  try {
+    const store_id = String(req.query.store_id || "").trim();
+    if (!store_id) return res.status(400).json({ ok:false, error:"Falta store_id" });
+
+    const token = await getStoreTokenOrThrow(store_id);
+    const base = tnBase(store_id);
+    const headers = tnHeaders(token);
+
+    const r = await axios.get(`${base}/promotions`, { headers, params: { per_page: 50 } });
+    return res.json({ ok:true, data: r.data });
+  } catch (e) {
+    const status = e.response?.status || 500;
+    return res.status(status).json({ ok:false, error: e.response?.data || e.message });
+  }
+});
+
+/**
+ * addCodesRobusto: intenta varios formatos/rutas porque hay diferencias
+ * entre cuentas / versiones. Devuelve el primero que funcione.
+ * - Paths probados:
+ *   1) /promotions/{id}/codes
+ *   2) /promotions/{id}/coupons
+ * - Shapes probados:
+ *   a) { codes: ["ABC","DEF"] }
+ *   b) [{ code: "ABC" }, { code: "DEF" }]
+ *   c) { codes: [{ code: "ABC" }, { code: "DEF" }] }
+ */
+async function addCodesRobusto({ base, headers, promotion_id, codes }) {
+  const paths = [
+    `/promotions/${promotion_id}/codes`,
+    `/promotions/${promotion_id}/coupons`,
+  ];
+  const shapes = [
+    { codes: codes },                                  // { codes: ["A","B"] }
+    codes.map(c => ({ code: String(c) })),             // [ {code:"A"}, {code:"B"} ]
+    { codes: codes.map(c => ({ code: String(c) })) },  // { codes:[{code:"A"},...] }
+  ];
+
+  const tried = [];
+  for (const path of paths) {
+    for (const body of shapes) {
+      try {
+        const r = await axios.post(`${base}${path}`, body, { headers });
+        return { ok:true, path, body_used: body, response: r.data };
+      } catch (e) {
+        tried.push({ path, body, error: e.response?.data || e.message });
+      }
+    }
+  }
+  return { ok:false, tried };
+}
+
 
 // -------------------- Admin (HTML con formulario) --------------------
 app.get("/admin", async (req, res) => {
