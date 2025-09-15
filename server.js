@@ -147,13 +147,12 @@ app.get("/", (_req, res) => res.send("OK"));
 // -------------------- Install/OAuth (URL correcta con app_id en el path) --------------------
 app.get("/install", (req, res) => {
   const appId = process.env.TN_CLIENT_ID;
-  if (!appId) return res.status(500).send("Falta TN_CLIENT_ID en variables de entorno");
+  if (!appId) return res.status(500).send("Falta TN_CLIENT_ID");
 
   const state = crypto.randomBytes(16).toString("hex");
   req.session.state = state;
 
-  // Tiendanube: el inicio de instalación es /apps/{app_id}/authorize
-  // (si no está logueado, primero te pide login; después muestra permisos)
+  // AR: dominio www.tiendanube.com
   const url = `https://www.tiendanube.com/apps/${encodeURIComponent(appId)}/authorize?state=${encodeURIComponent(state)}`;
   res.redirect(url);
 });
