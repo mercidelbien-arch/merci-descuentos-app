@@ -7,7 +7,8 @@
 "scripts": {
   "start": "node server.js",
   "dev": "nodemon server.js",
-  "postinstall": "npm --prefix admin ci && npm --prefix admin run build"
+  "postinstall": "npm --prefix admin install && npm --prefix admin run build"
+}
 
   },
   "dependencies": {
