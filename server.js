@@ -1,7 +1,10 @@
 // server.js — App Merci Descuentos (TN OAuth + Neon + Campañas c/ categorías)
 // ESM + Render estable. Incluye /api/health, /api/db/ping y /api/db/migrate.
-
 import path from 'path';
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -13,7 +16,6 @@ import crypto from "crypto";
 import "dotenv/config";      // única carga de variables .env
 import { Pool } from "pg";
 
-import path from "path";
 import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
