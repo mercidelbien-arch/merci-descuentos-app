@@ -683,7 +683,7 @@ app.get("/admin", async (req, res) => {
     "</style>\n" +
     "</head>\n" +
     "<body>\n" +
-    "  <h1>Cupones Merci " + (store_id ? ("&mdash; <small class=\"muted\">Tienda <code>" + store_id + "</code></small>") : "") + "</h1>\n" +
+    "  <h1>Cupones Merci " + (store_id ? ("&mdash; <small class=\\\"muted\\\">Tienda <code>" + store_id + "</code></small>") : "") + "</h1>\n" +
     "  <p class=\"muted\">Crear y segmentar campañas por categorías.</p>\n" +
     "\n" +
     "  <div class=\"card\">\n" +
@@ -799,7 +799,7 @@ app.get("/admin", async (req, res) => {
     "function listCampaigns(sid){ return api('/api/campaigns?store_id='+encodeURIComponent(sid)); }\n" +
     "function fetchCategories(sid){ return api('/api/tn/categories?store_id='+encodeURIComponent(sid)); }\n" +
     "function renderList(rows){\n" +
-    "  if(!rows || rows.length === 0){ $('#list').innerHTML = '<p class=\"muted\">No hay campañas.</p>'; return; }\n" +
+    "  if(!rows || rows.length === 0){ $('#list').innerHTML = '<p class=\\\"muted\\\">No hay campañas.</p>'; return; }\n" +
     "  var html = '<table><thead><tr>' +\n" +
     "             '<th>Nombre</th><th>Código</th><th>Tipo</th><th>Valor</th><th>Ámbito</th><th>Vigencia</th>' +\n" +
     "             '</tr></thead><tbody>';\n" +
@@ -819,10 +819,10 @@ app.get("/admin", async (req, res) => {
     "}\n" +
     "function refresh(){\n" +
     "  var sid = document.querySelector('input[name=store_id]').value.trim();\n" +
-    "  if(!sid){ $('#list').innerHTML = '<p class=\"muted\">Ingresá Store ID arriba.</p>'; return; }\n" +
+    "  if(!sid){ $('#list').innerHTML = '<p class=\\\"muted\\\">Ingresá Store ID arriba.</p>'; return; }\n" +
     "  $('#list').textContent = 'Cargando…';\n" +
     "  listCampaigns(sid).then(function(data){ renderList(data); })\n" +
-    "  .catch(function(){ $('#list').innerHTML = '<p class=\"muted\">Error cargando campañas.</p>'; });\n" +
+    "  .catch(function(){ $('#list').innerHTML = '<p class=\\\"muted\\\">Error cargando campañas.</p>'; });\n" +
     "}\n" +
     "function maybeLoadCats(){\n" +
     "  var scope = document.querySelector('#apply_scope').value;\n" +
@@ -835,8 +835,8 @@ app.get("/admin", async (req, res) => {
     "  fetchCategories(sid).then(function(cats){\n" +
     "    var inc = document.querySelector('#include_categories');\n" +
     "    var exc = document.querySelector('#exclude_categories');\n" +
-    "    inc.innerHTML = cats.map(function(c){ return '<option value=\"'+c.id+'\">'+c.name+'</option>'; }).join('');\n" +
-    "    exc.innerHTML = cats.map(function(c){ return '<option value=\"'+c.id+'\">'+c.name+'</option>'; }).join('');\n" +
+    "    inc.innerHTML = cats.map(function(c){ return '<option value=\\\"'+c.id+'\\\">'+c.name+'</option>'; }).join('');\n" +
+    "    exc.innerHTML = cats.map(function(c){ return '<option value=\\\"'+c.id+'\\\">'+c.name+'</option>'; }).join('');\n" +
     "    document.querySelector('#msg').textContent = '';\n" +
     "  }).catch(function(){ document.querySelector('#msg').textContent = 'No se pudieron cargar categorías'; });\n" +
     "}\n" +
