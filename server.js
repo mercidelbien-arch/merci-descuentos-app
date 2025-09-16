@@ -353,69 +353,73 @@ app.get("/admin", (req, res) => {
   </body></html>`;
 
   // --------- HOME (dashboard con tarjetas + gráfico mock) ---------
-  const home = () => {
-    const main = `
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+const home = () => {
+  const d = new Date();
+  const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+  const mesAnio = meses[d.getMonth()].charAt(0).toUpperCase() + meses[d.getMonth()].slice(1) + " " + d.getFullYear();
+
+  const main = `
+    <div class="head" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div>
         <h1 style="margin:0">Página principal</h1>
-        ${store_id ? `<span class="muted">— Tienda <code>${store_id}</code></span>` : ""}
+        <div class="muted">Resumen analítico — ${mesAnio}</div>
       </div>
-
-      <div class="grid">
-        <div class="card">
-          <div class="muted">Monto total descontado</div>
-          <div class="kpi">$ 428.450</div>
-          <div class="muted">Suma de descuentos aplicados en el mes · <span style="color:#16a34a">+18%</span></div>
-        </div>
-        <div class="card">
-          <div class="muted">Pedidos con descuento</div>
-          <div class="kpi">286</div>
-          <div class="muted">Vs. mes anterior · <span style="color:#16a34a">+11%</span></div>
-        </div>
-        <div class="card">
-          <div class="muted">Clientes beneficiados</div>
-          <div class="kpi">241</div>
-          <div class="muted">Únicos en el mes</div>
-        </div>
-        <div class="card">
-          <div class="muted">Top campaña activa</div>
-          <div class="kpi">10% en Secos</div>
-          <div class="muted">Participación 42%</div>
-        </div>
+      <div style="display:flex;gap:10px">
+        <a class="btn" style="background:#e5e7eb;color:#111" href="/api/metrics/export.csv?store_id=${store_id}">Exportar CSV</a>
+        <a class="btn" style="background:#4338ca" href="/admin?store_id=${store_id}&view=campaigns">Crear campaña</a>
       </div>
+    </div>
 
-      <div class="card" style="margin-top:16px">
-        <h3 style="margin:0 0 10px">Usos por día</h3>
-        <canvas id="chart" width="900" height="280"></canvas>
+    <div class="grid">
+      <div class="card">
+        <div class="muted">Monto total descontado</div>
+        <div class="kpi">$ 428.450</div>
+        <div class="muted">Suma de descuentos aplicados en el mes</div>
+        <div class="muted">Vs. mes anterior · <span style="color:#16a34a">+18%</span></div>
       </div>
-
-      <div style="margin-top:16px">
-        <a class="btn" href="/admin?store_id=${store_id}&view=campaigns">Crear campaña</a>
+      <div class="card">
+        <div class="muted">Pedidos con descuento</div>
+        <div class="kpi">286</div>
+        <div class="muted">Órdenes con al menos 1 cupón</div>
+        <div class="muted">Vs. mes anterior · <span style="color:#16a34a">+11%</span></div>
       </div>
+      <div class="card">
+        <div class="muted">Clientes beneficiados</div>
+        <div class="kpi">241</div>
+        <div class="muted">Únicos en el mes</div>
+      </div>
+      <div class="card">
+        <div class="muted">Top campaña activa</div>
+        <div class="kpi">10% en Secos</div>
+        <div class="muted">Participación 42%</div>
+      </div>
+    </div>
 
-      <script>
-        // Grafiquito simple con Canvas (mock)
-        (function(){
-          var c = document.getElementById('chart'); if(!c) return;
-          var ctx = c.getContext('2d');
-          var W = c.width, H = c.height, L = 30;
-          var data = Array.from({length:L}, (_,i)=> 8 + Math.round(10*Math.abs(Math.sin(i/3)) + (Math.random()*4-2)));
-          // eje
-          ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.moveTo(40,10); ctx.lineTo(40,H-30); ctx.lineTo(W-10,H-30); ctx.stroke();
-          // línea
-          var max = Math.max.apply(null,data), min = Math.min.apply(null,data);
-          var dx = (W-70)/(L-1), scale = (H-60)/(max-min || 1);
-          ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 2; ctx.beginPath();
-          data.forEach(function(v,i){
-            var x = 40 + i*dx; var y = (H-30) - (v-min)*scale;
-            if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-          });
-          ctx.stroke();
-        })();
-      </script>
-    `;
-    return layout("Página principal", main);
-  };
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin:0 0 10px">Usos por día</h3>
+      <canvas id="chart" width="980" height="300"></canvas>
+    </div>
+
+    <script>
+      (function(){
+        var c = document.getElementById('chart'); if(!c) return;
+        var ctx = c.getContext('2d'), W=c.width, H=c.height, L=30;
+        var data = Array.from({length:L}, (_,i)=> 8 + Math.round(10*Math.abs(Math.sin(i/3)) + (Math.random()*4-2)));
+        // ejes
+        ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(40,10); ctx.lineTo(40,H-30); ctx.lineTo(W-10,H-30); ctx.stroke();
+        // línea
+        var max=Math.max.apply(null,data), min=Math.min.apply(null,data);
+        var dx=(W-70)/(L-1), scale=(H-60)/(max-min || 1);
+        ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 2; ctx.beginPath();
+        data.forEach(function(v,i){ var x=40+i*dx, y=(H-30)-(v-min)*scale; i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+        ctx.stroke();
+      })();
+    </script>
+  `;
+  return layout("Página principal", main);
+};
+
 
   // --------- CAMPAIGNS (form que ya tenías) ---------
   const campaigns = () => {
