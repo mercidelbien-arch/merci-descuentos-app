@@ -857,6 +857,79 @@ app.get("/admin", async (req, res) => {
     "</html>\n"
   );
 });
+// -------------------- Admin > Campañas (grid de tipos) --------------------
+app.get("/admin/campaigns", (req, res) => {
+  const store_id = String(req.query.store_id || "").trim();
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.end(
+    "<!doctype html>\n" +
+    "<html lang=\"es\">\n" +
+    "<head>\n" +
+    "<meta charset=\"utf-8\"/>\n" +
+    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>\n" +
+    "<title>Campañas · Merci</title>\n" +
+    "<style>\n" +
+    "  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;margin:0;background:#f7f8fa;color:#0f172a}\n" +
+    "  .layout{display:grid;grid-template-columns:240px 1fr;min-height:100vh}\n" +
+    "  .aside{background:#fff;border-right:1px solid #e5e7eb;padding:20px}\n" +
+    "  .brand{display:flex;align-items:center;gap:10px;font-weight:700;margin-bottom:16px}\n" +
+    "  .nav a{display:block;padding:10px 12px;border-radius:10px;color:#0f172a;text-decoration:none;margin:4px 0}\n" +
+    "  .nav a.active{background:#eef2ff;color:#4338ca}\n" +
+    "  .main{padding:24px}\n" +
+    "  .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}\n" +
+    "  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}\n" +
+    "  .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:18px;cursor:pointer;transition:.15s}\n" +
+    "  .card:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,.08)}\n" +
+    "  .icon{width:40px;height:40px;border-radius:10px;background:#eef2ff;display:flex;align-items:center;justify-content:center;margin-bottom:10px}\n" +
+    "  .title{font-weight:700;margin:0 0 4px}\n" +
+    "  .muted{color:#64748b;font-size:14px;margin:0}\n" +
+    "</style>\n" +
+    "</head>\n" +
+    "<body>\n" +
+    "<div class=\"layout\">\n" +
+    "  <aside class=\"aside\">\n" +
+    "    <div class=\"brand\">Merci Descuentos</div>\n" +
+    "    <nav class=\"nav\">\n" +
+    "      <a href=\"/admin/?store_id=" + store_id + "\">Página principal</a>\n" +
+    "      <a class=\"active\" href=\"/admin/campaigns?store_id=" + store_id + "\">Campañas</a>\n" +
+    "      <a href=\"#\" onclick=\"alert('Próximo');return false;\">Categorías</a>\n" +
+    "      <a href=\"#\" onclick=\"alert('Próximo');return false;\">Redenciones</a>\n" +
+    "      <a href=\"#\" onclick=\"alert('Próximo');return false;\">Clientes</a>\n" +
+    "      <a href=\"/api/health\" target=\"_blank\">Salud & Logs</a>\n" +
+    "    </nav>\n" +
+    "  </aside>\n" +
+    "  <main class=\"main\">\n" +
+    "    <div class=\"head\"><h1 style=\"margin:0\">Campañas</h1></div>\n" +
+    "    <div class=\"grid\">\n" +
+    "      <a class=\"card\" href=\"/admin/?store_id=" + store_id + "\" style=\"text-decoration:none;color:inherit\">\n" +
+    "        <div class=\"icon\">\n" +
+    "          <svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"#4338ca\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n" +
+    "            <circle cx=\"7\" cy=\"7\" r=\"1.5\"></circle>\n" +
+    "            <circle cx=\"17\" cy=\"17\" r=\"1.5\"></circle>\n" +
+    "            <path d=\"M7 17L17 7\"></path>\n" +
+    "          </svg>\n" +
+    "        </div>\n" +
+    "        <h3 class=\"title\">Cupones %</h3>\n" +
+    "        <p class=\"muted\">Descuento en subtotal del carrito usando código.</p>\n" +
+    "      </a>\n" +
+    "      <!-- Dejá estos como próximos -->\n" +
+    "      <div class=\"card\" onclick=\"alert('Próximo: 3x2')\">\n" +
+    "        <div class=\"icon\"></div>\n" +
+    "        <h3 class=\"title\">3×2</h3>\n" +
+    "        <p class=\"muted\">Lleva X, pagá Y (próximo).</p>\n" +
+    "      </div>\n" +
+    "      <div class=\"card\" onclick=\"alert('Próximo: progresivo')\">\n" +
+    "        <div class=\"icon\"></div>\n" +
+    "        <h3 class=\"title\">Progresivo</h3>\n" +
+    "        <p class=\"muted\">Descuento por cantidad (próximo).</p>\n" +
+    "      </div>\n" +
+    "    </div>\n" +
+    "  </main>\n" +
+    "</div>\n" +
+    "</body>\n" +
+    "</html>\n"
+  );
+});
 
 // -------------------- API: listar campañas --------------------
 app.get("/api/campaigns", async (req, res) => {
