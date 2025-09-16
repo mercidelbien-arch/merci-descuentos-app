@@ -675,6 +675,22 @@ app.post("/api/campaigns", async (req, res) => {
   }
 });
 
+// Export CSV (demo) — últimos 30 días
+app.get("/api/metrics/export.csv", (_req, res) => {
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=\"merci-metrics.csv\"");
+  const today = new Date();
+  const rows = ["fecha,usos,descuento_total"];
+  for (let i=29; i>=0; i--){
+    const d = new Date(today); d.setDate(today.getDate()-i);
+    const yyyy = d.getFullYear(), mm = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0");
+    const usos = 8 + Math.round(10*Math.abs(Math.sin((29-i)/3)));
+    const total = usos * 1500; // mock $
+    rows.push(`${yyyy}-${mm}-${dd},${usos},${total}`);
+  }
+  res.send(rows.join("\n"));
+});
+
 // -------------------- Discounts Callback (motor) --------------------
 app.post("/discounts/callback", async (req, res) => {
   try {
