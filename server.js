@@ -394,7 +394,7 @@ app.get("/admin", (req, res) => {
   const campaigns = () => `
     <div class="head"><h1 style="margin:0">Campañas</h1></div>
     <div class="grid">
-      <a class="card tile" href="/admin/?store_id=${store_id}&view=create">
+      <a class="card tile" href="/admin/?store_id=${store_id}&view=coupons">
         <div class="icon">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#4338ca" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="7" cy="7" r="1.5"></circle><circle cx="17" cy="17" r="1.5"></circle><path d="M7 17L17 7"></path>
@@ -550,12 +550,95 @@ app.get("/admin", (req, res) => {
   `;
 
   const body =
-    view === "campaigns" ? campaigns()
-  : view === "create"    ? create()
-  :                       home();
+  view === "campaigns" ? campaigns()
+: view === "create"    ? create()
+: view === "coupons"   ? coupons()
+:                        home();
+
 
   res.end(layout("Panel de administración", body));
 });
+// -------- COUPONS (lista de cupones vigentes + botón crear) --------
+const coupons = () => `
+  <div class="head">
+    <h1 style="margin:0">Cupones</h1>
+    <div style="display:flex;gap:8px">
+      <a class="btn" href="/admin/?store_id=${store_id}&view=create">➕ Crear cupón</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <input id="q" placeholder="Buscar por código" 
+             style="flex:1;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px">
+      <button id="sort" class="btn" style="background:#e5e7eb;color:#111">A–Z</button>
+    </div>
+
+    <div id="count" class="muted" style="margin:6px 0">Cargando…</div>
+
+    <div style="overflow:auto">
+      <table style="width:100%;border-collapse:collapse" id="tbl">
+        <thead>
+          <tr>
+            <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Código</th>
+            <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Descuento</th>
+            <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Usos</th>
+            <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Vigencia</th>
+            <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Estado</th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <tr><td colspan="5" style="padding:12px" class="muted">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const SID = ${JSON.stringify(store_id || "")};
+    const $ = (s, el)=> (el||document).querySelector(s);
+    let data = [], asc = true;
+
+    function fmtDesc(r){
+      if ((r.discount_type||'percent') === 'percent') return (r.discount_value||0) + ' %';
+      return '$ ' + Number(r.discount_value||0);
+    }
+    function fmtDate(d){ return d ? String(d) : '—'; }
+
+    function render(list){
+      const q = ($('#q').value||'').trim().toUpperCase();
+      let rows = list.filter(r => r.code.toUpperCase().includes(q));
+      $('#count').textContent = rows.length + ' cupón(es) vigentes';
+      if (asc) rows.sort((a,b)=> a.code.localeCompare(b.code)); else rows.sort((a,b)=> b.code.localeCompare(a.code));
+
+      if (rows.length === 0){
+        $('#rows').innerHTML = '<tr><td colspan="5" style="padding:12px" class="muted">Sin resultados</td></tr>';
+        return;
+      }
+      $('#rows').innerHTML = rows.map(r => (
+        '<tr>' +
+          '<td style="padding:8px;border-bottom:1px solid #eee"><code>'+r.code+'</code></td>' +
+          '<td style="padding:8px;border-bottom:1px solid #eee">'+fmtDesc(r)+'</td>' +
+          '<td style="padding:8px;border-bottom:1px solid #eee">'+(r.uses||0)+'</td>' +
+          '<td style="padding:8px;border-bottom:1px solid #eee">'+fmtDate(r.valid_from)+' → '+fmtDate(r.valid_until)+'</td>' +
+          '<td style="padding:8px;border-bottom:1px solid #eee"><span style="background:#dcfce7;color:#166534;padding:4px 8px;border-radius:999px;font-size:12px">Activado</span></td>' +
+        '</tr>'
+      )).join('');
+    }
+
+    function load(){
+      fetch('/api/campaigns/active?store_id='+encodeURIComponent(SID))
+        .then(r=>r.json())
+        .then(r=>{ data = Array.isArray(r) ? r : []; render(data); })
+        .catch(()=>{ $('#rows').innerHTML = '<tr><td colspan="5" style="padding:12px" class="muted">Error cargando</td></tr>'; });
+    }
+
+    $('#q').addEventListener('input', ()=> render(data));
+    $('#sort').addEventListener('click', ()=> { asc = !asc; render(data); });
+
+    window.addEventListener('load', load);
+  </script>
+`;
 
 
 // -------------------- API campañas --------------------
@@ -680,6 +763,39 @@ app.get("/api/metrics/export.csv", (_req, res) => {
     rows.push(`${yyyy}-${mm}-${dd},${usos},${total}`);
   }
   res.send(rows.join("\n"));
+});
+
+// -------------------- API: campañas vigentes --------------------
+app.get("/api/campaigns/active", async (req, res) => {
+  try {
+    const store_id = String(req.query.store_id || "").trim();
+    if (!store_id) return res.json([]);
+
+    const { rows } = await pool.query(
+      `
+      SELECT c.id, c.code, c.name, c.discount_type, c.discount_value,
+             c.apply_scope, c.valid_from, c.valid_until, c.status,
+             COALESCE(u.uses,0)::int AS uses
+        FROM campaigns c
+        LEFT JOIN LATERAL (
+          SELECT COUNT(*) AS uses
+            FROM coupon_ledger cl
+           WHERE cl.store_id = c.store_id
+             AND UPPER(cl.code) = UPPER(c.code)
+        ) u ON true
+       WHERE c.store_id = $1
+         AND c.status = 'active'
+         AND ( (c.valid_from IS NULL OR c.valid_from <= CURRENT_DATE)
+           AND (c.valid_until IS NULL OR c.valid_until >= CURRENT_DATE) )
+       ORDER BY c.created_at DESC
+      `,
+      [store_id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("GET /api/campaigns/active error:", err);
+    res.status(500).json({ message: "Error al obtener campañas vigentes" });
+  }
 });
 
 // ================== Métricas Home ==================
