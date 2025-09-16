@@ -931,26 +931,6 @@ app.get("/admin/campaigns", (req, res) => {
   );
 });
 
-// -------------------- Admin > Campañas --------------------
-app.get("/admin/campaigns", (req, res) => {
-  const store_id = String(req.query.store_id || "").trim();
-  console.log("HIT /admin/campaigns sid=", store_id); // debug
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.end(
-    "<!doctype html><meta charset='utf-8'><title>Campañas</title>" +
-    "<div style='font-family:system-ui;max-width:960px;margin:24px auto'>" +
-      "<h1 style='margin:0 0 16px'>Campañas</h1>" +
-      "<a href='/admin/?store_id=" + store_id + "' " +
-         "style='display:block;text-decoration:none;color:inherit;" +
-               "background:#fff;border:1px solid #e5e7eb;border-radius:14px;" +
-               "box-shadow:0 1px 3px rgba(0,0,0,.05);padding:20px'>" +
-        "<div style='font-size:32px;color:#4338ca'>%</div>" +
-        "<div style='font-weight:700'>Cupones %</div>" +
-        "<div style='color:#64748b'>Descuento con código</div>" +
-      "</a>" +
-    "</div>"
-  );
-});
 
 // -------------------- API: listar campañas --------------------
 app.get("/api/campaigns", async (req, res) => {
