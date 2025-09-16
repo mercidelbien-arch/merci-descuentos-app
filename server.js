@@ -300,152 +300,266 @@ app.all("/api/tn/scripts/install/direct", async (req, res) => {
   }
 });
 
-// -------------------- Admin: Campañas (GRID) --------------------
-// Redirige la vieja URL a la vista unificada
-app.get("/admin/campaigns", (req, res) => {
-  const store_id = String(req.query.store_id || "").trim();
-  return res.redirect(`/admin?store_id=${encodeURIComponent(store_id)}&view=campaigns`);
-});
-
-// -------------------- Admin: Formulario (CREAR campaña) --------------------
-// -------------------- Admin (shell con vistas) --------------------
+// -------------------- Admin (layout único: home/campaigns) --------------------
 app.get("/admin", (req, res) => {
   const store_id = String(req.query.store_id || "").trim();
   const view = String(req.query.view || "home"); // 'home' | 'campaigns'
-  const isCampaigns = view === "campaigns";
-
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  return res.end(
-    "<!doctype html>\n" +
-    "<html lang=\"es\">\n" +
-    "<head>\n" +
-    "<meta charset=\"utf-8\"/>\n" +
-    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>\n" +
-    "<title>Merci Descuentos</title>\n" +
-    "<style>\n" +
-    "  :root{--b:#e5e7eb;--bg:#f7f8fa;--ink:#0f172a;--mut:#64748b;--pri:#4338ca}\n" +
-    "  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial}\n" +
-    "  .layout{display:grid;grid-template-columns:240px 1fr;min-height:100vh}\n" +
-    "  .aside{background:#fff;border-right:1px solid var(--b);padding:20px}\n" +
-    "  .brand{font-weight:700;margin-bottom:14px}\n" +
-    "  .nav a{display:block;padding:10px 12px;border-radius:10px;color:var(--ink);text-decoration:none;margin:4px 0}\n" +
-    "  .nav a.active{background:#eef2ff;color:var(--pri)}\n" +
-    "  .main{padding:24px}\n" +
-    "  .card{background:#fff;border:1px solid var(--b);border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:18px}\n" +
-    "  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}\n" +
-    "  .btn{background:#111;color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}\n" +
-    "  label{display:block;font-size:12px;color:#555;margin-top:10px}\n" +
-    "  input,select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;margin-top:6px}\n" +
-    "  table{width:100%;border-collapse:collapse;margin-top:12px}\n" +
-    "  th,td{border-bottom:1px solid #eee;text-align:left;padding:8px}\n" +
-    "</style>\n" +
-    "</head>\n" +
-    "<body>\n" +
-    "<div class=\"layout\">\n" +
-    "  <aside class=\"aside\">\n" +
-    "    <div class=\"brand\">Merci Descuentos</div>\n" +
-    "    <nav class=\"nav\">\n" +
-    "      <a href=\"/admin?store_id=" + store_id + "&view=home\" class=\"" + (isCampaigns ? "" : "active") + "\">Página principal</a>\n" +
-    "      <a href=\"/admin?store_id=" + store_id + "&view=campaigns\" class=\"" + (isCampaigns ? "active" : "") + "\">Campañas</a>\n" +
-    "      <a href=\"#\" onclick=\"alert('Próximo');return false;\">Categorías</a>\n" +
-    "      <a href=\"#\" onclick=\"alert('Próximo');return false;\">Redenciones</a>\n" +
-    "      <a href=\"#\" onclick=\"alert('Próximo');return false;\">Clientes</a>\n" +
-    "      <a href=\"/api/health\" target=\"_blank\">Salud & Logs</a>\n" +
-    "    </nav>\n" +
-    "  </aside>\n" +
-    "  <main class=\"main\">\n" +
-    (isCampaigns
-      ? (
-        // ======= VISTA: CAMPAÑAS (grid con “Cupones %”) =======
-        "<h1 style=\"margin:0 0 12px\">Campañas</h1>\n" +
-        "<div class=\"grid\">\n" +
-        "  <a class=\"card\" href=\"/admin?store_id=" + store_id + "&view=home#crear\" style=\"text-decoration:none;color:inherit\">\n" +
-        "    <div style=\"width:40px;height:40px;border-radius:10px;background:#eef2ff;display:flex;align-items:center;justify-content:center;margin-bottom:10px\">\n" +
-        "      <svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" fill=\"none\" stroke=\"#4338ca\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n" +
-        "        <circle cx=\"7\" cy=\"7\" r=\"1.5\"></circle><circle cx=\"17\" cy=\"17\" r=\"1.5\"></circle><path d=\"M7 17L17 7\"></path>\n" +
-        "      </svg>\n" +
-        "    </div>\n" +
-        "    <h3 style=\"margin:0 0 4px;font-weight:700\">Cupones %</h3>\n" +
-        "    <p style=\"margin:0;color:#64748b\">Descuento en subtotal del carrito usando código.</p>\n" +
-        "  </a>\n" +
-        "  <div class=\"card\" onclick=\"alert('Próximo: 3x2')\"><h3 style=\"margin:0 0 4px\">3×2</h3><p style=\"margin:0;color:#64748b\">Próximo.</p></div>\n" +
-        "  <div class=\"card\" onclick=\"alert('Próximo: Progresivo')\"><h3 style=\"margin:0 0 4px\">Progresivo</h3><p style=\"margin:0;color:#64748b\">Próximo.</p></div>\n" +
-        "</div>\n"
-      )
-      : (
-        // ======= VISTA: HOME (form para crear campaña + listado) =======
-        "<h1 style=\"margin:0 0 12px\">Cupones Merci — <small style=\"color:#64748b\">Tienda <code>" + store_id + "</code></small></h1>\n" +
-        "<p style=\"color:#64748b;margin:0 0 12px\">Crear y segmentar campañas por categorías.</p>\n" +
-        "<div class=\"card\" id=\"crear\"><h3 style=\"margin:0 0 12px\">Nueva campaña</h3>\n" +
-        "  <form id=\"f\">\n" +
-        "    <div style=\"display:grid;grid-template-columns:repeat(2,1fr);gap:12px\">\n" +
-        "      <div><label>Store ID</label><input name=\"store_id\" value=\"" + (store_id || "") + "\" required /></div>\n" +
-        "      <div><label>Código del cupón</label><input name=\"code\" placeholder=\"EJ: GIMNASIO10\" required /></div>\n" +
-        "    </div>\n" +
-        "    <label>Nombre interno</label><input name=\"name\" placeholder=\"EJ: Convenio Gimnasios 10%\" required />\n" +
-        "    <div style=\"display:grid;grid-template-columns:repeat(2,1fr);gap:12px\">\n" +
-        "      <div><label>Tipo de descuento</label><select name=\"discount_type\"><option value=\"percent\" selected>%</option><option value=\"fixed\">Monto fijo</option></select></div>\n" +
-        "      <div><label>Valor</label><input name=\"discount_value\" type=\"number\" step=\"1\" value=\"10\" required /></div>\n" +
-        "    </div>\n" +
-        "    <div style=\"display:grid;grid-template-columns:repeat(2,1fr);gap:12px\">\n" +
-        "      <div><label>Vigencia desde</label><input name=\"valid_from\" type=\"date\" required /></div>\n" +
-        "      <div><label>Vigencia hasta</label><input name=\"valid_until\" type=\"date\" required /></div>\n" +
-        "    </div>\n" +
-        "    <div style=\"display:grid;grid-template-columns:repeat(3,1fr);gap:12px\">\n" +
-        "      <div><label>Ámbito</label><select name=\"apply_scope\" id=\"apply_scope\"><option value=\"all\" selected>Toda la tienda</option><option value=\"categories\">Categorías incluidas</option><option value=\"products\">Productos (próximo)</option></select></div>\n" +
-        "      <div><label>Mínimo carrito</label><input name=\"min_cart_amount\" type=\"number\" step=\"1\" value=\"0\" /></div>\n" +
-        "      <div><label>Excluir productos en oferta</label><select name=\"exclude_sale_items\"><option value=\"false\" selected>No</option><option value=\"true\">Sí</option></select></div>\n" +
-        "    </div>\n" +
-        "    <div id=\"cats_block\" style=\"display:none\">\n" +
-        "      <label>Categorías para incluir (Ctrl/Cmd + clic para múltiples)</label>\n" +
-        "      <select id=\"include_categories\" multiple style=\"min-height:120px;width:100%\"></select>\n" +
-        "      <label style=\"margin-top:12px\">Categorías a excluir</label>\n" +
-        "      <select id=\"exclude_categories\" multiple style=\"min-height:120px;width:100%\"></select>\n" +
-        "    </div>\n" +
-        "    <div style=\"margin-top:12px;display:flex;gap:10px\"><button type=\"submit\" class=\"btn\">Crear campaña</button><button type=\"button\" id=\"reload\" class=\"btn\" style=\"background:#334155\">Actualizar lista</button></div>\n" +
-        "  </form>\n" +
-        "  <div id=\"msg\" style=\"color:#64748b;margin-top:8px\"></div>\n" +
-        "</div>\n" +
-        "<div class=\"card\"><h3 style=\"margin:0 0 12px\">Campañas existentes</h3><div id=\"list\" style=\"color:#64748b\">Cargando…</div></div>\n" +
-        "<script>\n" +
-        "const $ = s => document.querySelector(s);\n" +
-        "function toBool(v){ return String(v) === 'true'; }\n" +
-        "function selectedIds(sel){ return Array.from(sel.selectedOptions).map(o => Number(o.value)); }\n" +
-        "function formToPayload(form){ const fd = new FormData(form); const p = {\n" +
-        "  store_id: fd.get('store_id'), code: fd.get('code'), name: fd.get('name'),\n" +
-        "  discount_type: fd.get('discount_type'), discount_value: Number(fd.get('discount_value')),\n" +
-        "  valid_from: fd.get('valid_from'), valid_until: fd.get('valid_until'),\n" +
-        "  apply_scope: fd.get('apply_scope'), min_cart_amount: Number(fd.get('min_cart_amount')||0),\n" +
-        "  exclude_sale_items: toBool(fd.get('exclude_sale_items')) };\n" +
-        "  if(p.apply_scope==='categories'){ p.include_category_ids = selectedIds($('#include_categories')); p.exclude_category_ids = selectedIds($('#exclude_categories')); }\n" +
-        "  return p; }\n" +
-        "function api(path, opts){ return fetch(path, opts).then(r => r.json().then(d => { if(!r.ok) throw d; return d; })); }\n" +
-        "function listCampaigns(sid){ return api('/api/campaigns?store_id='+encodeURIComponent(sid)); }\n" +
-        "function fetchCategories(sid){ return api('/api/tn/categories?store_id='+encodeURIComponent(sid)); }\n" +
-        "function renderList(rows){ if(!rows||rows.length===0){ $('#list').innerHTML = '<p style=\"color:#64748b\">No hay campañas.</p>'; return; }\n" +
-        "  let html = '<table><thead><tr><th>Nombre</th><th>Código</th><th>Tipo</th><th>Valor</th><th>Ámbito</th><th>Vigencia</th></tr></thead><tbody>';\n" +
-        "  html += rows.map(r => { const val = r.discount_type==='percent' ? (r.discount_value + '%') : ('$' + r.discount_value); return '<tr><td>'+r.name+'</td><td><code>'+r.code+'</code></td><td>'+r.discount_type+'</td><td>'+val+'</td><td>'+r.apply_scope+'</td><td>'+r.valid_from+' → '+r.valid_until+'</td></tr>'; }).join('');\n" +
-        "  html += '</tbody></table>'; $('#list').innerHTML = html; }\n" +
-        "function refresh(){ const sid = document.querySelector('input[name=store_id]').value.trim(); if(!sid){ $('#list').innerHTML = '<p style=\"color:#64748b\">Ingresá Store ID arriba.</p>'; return; }\n" +
-        "  $('#list').textContent = 'Cargando…'; listCampaigns(sid).then(renderList).catch(()=>$('#list').innerHTML='<p style=\"color:#64748b\">Error cargando campañas.</p>'); }\n" +
-        "function maybeLoadCats(){ const scope = document.querySelector('#apply_scope').value; const block = document.querySelector('#cats_block'); if(scope!=='categories'){ block.style.display='none'; return; }\n" +
-        "  block.style.display='block'; const sid = document.querySelector('input[name=store_id]').value.trim(); if(!sid){ $('#msg').textContent='Ingresá Store ID para cargar categorías'; return; }\n" +
-        "  $('#msg').textContent='Cargando categorías…'; fetchCategories(sid).then(cats => { const inc=$('#include_categories'), exc=$('#exclude_categories'); inc.innerHTML=cats.map(c=>'<option value=\"'+c.id+'\">'+c.name+'</option>').join(''); exc.innerHTML=inc.innerHTML; $('#msg').textContent=''; }).catch(()=>$('#msg').textContent='No se pudieron cargar categorías'); }\n" +
-        "document.querySelector('#apply_scope').addEventListener('change', maybeLoadCats);\n" +
-        "document.querySelector('#f').addEventListener('submit', ev => { ev.preventDefault(); $('#msg').textContent='Creando…'; const payload=formToPayload(ev.target);\n" +
-        "  api('/api/campaigns',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})\n" +
-        "  .then(()=>{ $('#msg').textContent='Campaña creada ✅'; refresh(); })\n" +
-        "  .catch(e=>{ $('#msg').textContent='Error: '+(e.detail||e.message||'No se pudo crear'); }); });\n" +
-        "document.querySelector('#reload').addEventListener('click', refresh);\n" +
-        "window.addEventListener('load', refresh);\n" +
-        "</script>\n"
-      )
-    ) +
-    "  </main>\n" +
-    "</div>\n" +
-    "</body>\n" +
-    "</html>\n"
-  );
+
+  const nav = `
+    <nav class="nav">
+      <a class="${view==='home'?'active':''}" href="/admin?store_id=${store_id}&view=home">Página principal</a>
+      <a class="${view==='campaigns'?'active':''}" href="/admin?store_id=${store_id}&view=campaigns">Campañas</a>
+      <a href="#" onclick="alert('Próximo');return false;">Categorías</a>
+      <a href="#" onclick="alert('Próximo');return false;">Redenciones</a>
+      <a href="#" onclick="alert('Próximo');return false;">Clientes</a>
+      <a href="/api/health" target="_blank">Salud & Logs</a>
+    </nav>
+  `;
+
+  const layout = (title, mainHtml) => `<!doctype html>
+  <html lang="es"><head><meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${title} · Merci</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;margin:0;background:#f7f8fa;color:#0f172a}
+    .layout{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+    .aside{background:#fff;border-right:1px solid #e5e7eb;padding:20px}
+    .brand{font-weight:700;margin-bottom:16px}
+    .nav a{display:block;padding:10px 12px;border-radius:10px;color:#0f172a;text-decoration:none;margin:4px 0}
+    .nav a.active{background:#eef2ff;color:#4338ca}
+    .main{padding:24px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:18px}
+    .kpi{font-size:30px;font-weight:800;margin:6px 0}
+    .muted{color:#64748b;font-size:14px}
+    .btn{background:#111;color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}
+    input,select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px}
+    .row{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    .row3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{border-bottom:1px solid #eee;text-align:left;padding:8px}
+  </style></head>
+  <body>
+    <div class="layout">
+      <aside class="aside">
+        <div class="brand">Merci Descuentos</div>
+        ${nav}
+      </aside>
+      <main class="main">
+        ${mainHtml}
+      </main>
+    </div>
+  </body></html>`;
+
+  // --------- HOME (dashboard con tarjetas + gráfico mock) ---------
+  const home = () => {
+    const main = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <h1 style="margin:0">Página principal</h1>
+        ${store_id ? `<span class="muted">— Tienda <code>${store_id}</code></span>` : ""}
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="muted">Monto total descontado</div>
+          <div class="kpi">$ 428.450</div>
+          <div class="muted">Suma de descuentos aplicados en el mes · <span style="color:#16a34a">+18%</span></div>
+        </div>
+        <div class="card">
+          <div class="muted">Pedidos con descuento</div>
+          <div class="kpi">286</div>
+          <div class="muted">Vs. mes anterior · <span style="color:#16a34a">+11%</span></div>
+        </div>
+        <div class="card">
+          <div class="muted">Clientes beneficiados</div>
+          <div class="kpi">241</div>
+          <div class="muted">Únicos en el mes</div>
+        </div>
+        <div class="card">
+          <div class="muted">Top campaña activa</div>
+          <div class="kpi">10% en Secos</div>
+          <div class="muted">Participación 42%</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3 style="margin:0 0 10px">Usos por día</h3>
+        <canvas id="chart" width="900" height="280"></canvas>
+      </div>
+
+      <div style="margin-top:16px">
+        <a class="btn" href="/admin?store_id=${store_id}&view=campaigns">Crear campaña</a>
+      </div>
+
+      <script>
+        // Grafiquito simple con Canvas (mock)
+        (function(){
+          var c = document.getElementById('chart'); if(!c) return;
+          var ctx = c.getContext('2d');
+          var W = c.width, H = c.height, L = 30;
+          var data = Array.from({length:L}, (_,i)=> 8 + Math.round(10*Math.abs(Math.sin(i/3)) + (Math.random()*4-2)));
+          // eje
+          ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(40,10); ctx.lineTo(40,H-30); ctx.lineTo(W-10,H-30); ctx.stroke();
+          // línea
+          var max = Math.max.apply(null,data), min = Math.min.apply(null,data);
+          var dx = (W-70)/(L-1), scale = (H-60)/(max-min || 1);
+          ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 2; ctx.beginPath();
+          data.forEach(function(v,i){
+            var x = 40 + i*dx; var y = (H-30) - (v-min)*scale;
+            if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+          });
+          ctx.stroke();
+        })();
+      </script>
+    `;
+    return layout("Página principal", main);
+  };
+
+  // --------- CAMPAIGNS (form que ya tenías) ---------
+  const campaigns = () => {
+    const main = `
+      <h1 style="margin:0 0 6px">Cupones Merci — <span class="muted">Tienda ${store_id||''}</span></h1>
+      <p class="muted">Crear y segmentar campañas por categorías.</p>
+
+      <div class="card">
+        <h3>Nueva campaña</h3>
+        <form id="f">
+          <div class="row">
+            <div><label>Store ID</label><input name="store_id" value="${store_id||''}" required></div>
+            <div><label>Código del cupón</label><input name="code" placeholder="EJ: GIMNASIO10" required></div>
+          </div>
+
+          <label>Nombre interno</label>
+          <input name="name" placeholder="EJ: Convenio Gimnasios 10%" required>
+
+          <div class="row">
+            <div>
+              <label>Tipo de descuento</label>
+              <select name="discount_type"><option value="percent" selected>%</option><option value="fixed">Monto fijo</option></select>
+            </div>
+            <div><label>Valor</label><input name="discount_value" type="number" step="1" value="10" required></div>
+          </div>
+
+          <div class="row">
+            <div><label>Vigencia desde</label><input name="valid_from" type="date" required></div>
+            <div><label>Vigencia hasta</label><input name="valid_until" type="date" required></div>
+          </div>
+
+          <div class="row3">
+            <div>
+              <label>Ámbito</label>
+              <select name="apply_scope" id="apply_scope">
+                <option value="all" selected>Toda la tienda</option>
+                <option value="categories">Categorías incluidas</option>
+                <option value="products">Productos (próximo)</option>
+              </select>
+            </div>
+            <div><label>Mínimo carrito</label><input name="min_cart_amount" type="number" step="1" value="0"></div>
+            <div>
+              <label>Excluir productos en oferta</label>
+              <select name="exclude_sale_items"><option value="false" selected>No</option><option value="true">Sí</option></select>
+            </div>
+          </div>
+
+          <div id="cats_block" style="display:none">
+            <label>Categorías para incluir (Ctrl/Cmd + clic para múltiples)</label>
+            <select id="include_categories" multiple style="min-height:120px"></select>
+            <label style="margin-top:12px">Categorías a excluir</label>
+            <select id="exclude_categories" multiple style="min-height:120px"></select>
+          </div>
+
+          <div style="margin-top:12px;display:flex;gap:10px">
+            <button type="submit" class="btn">Crear campaña</button>
+            <button type="button" id="reload" class="btn" style="background:#334155">Actualizar lista</button>
+            <a class="btn" style="background:#4338ca" href="/admin?store_id=${store_id}&view=home">Volver al inicio</a>
+          </div>
+        </form>
+        <div id="msg" class="muted" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <h3>Campañas existentes</h3>
+        <div id="list" class="muted">Cargando…</div>
+      </div>
+
+      <script>
+        const $ = (s,el)=> (el||document).querySelector(s);
+        const toBool = v => String(v) === 'true';
+        const selectedIds = sel => Array.from(sel.selectedOptions).map(o=> Number(o.value));
+        function formToPayload(form){
+          var fd = new FormData(form);
+          var p = {
+            store_id: fd.get('store_id'),
+            code: fd.get('code'),
+            name: fd.get('name'),
+            discount_type: fd.get('discount_type'),
+            discount_value: Number(fd.get('discount_value')),
+            valid_from: fd.get('valid_from'),
+            valid_until: fd.get('valid_until'),
+            apply_scope: fd.get('apply_scope'),
+            min_cart_amount: Number(fd.get('min_cart_amount')||0),
+            exclude_sale_items: toBool(fd.get('exclude_sale_items'))
+          };
+          if (p.apply_scope === 'categories'){
+            p.include_category_ids = selectedIds($('#include_categories'));
+            p.exclude_category_ids = selectedIds($('#exclude_categories'));
+          }
+          return p;
+        }
+        function api(path, opts){ return fetch(path, opts).then(r=> r.json().then(d=>{ if(!r.ok) throw d; return d; })); }
+        function listCampaigns(sid){ return api('/api/campaigns?store_id='+encodeURIComponent(sid)); }
+        function fetchCategories(sid){ return api('/api/tn/categories?store_id='+encodeURIComponent(sid)); }
+        function renderList(rows){
+          if(!rows || rows.length===0){ $('#list').innerHTML='<p class="muted">No hay campañas.</p>'; return; }
+          var html = '<table><thead><tr><th>Nombre</th><th>Código</th><th>Tipo</th><th>Valor</th><th>Ámbito</th><th>Vigencia</th></tr></thead><tbody>';
+          html += rows.map(function(r){
+            var val = r.discount_type==='percent' ? (r.discount_value + '%') : ('$' + r.discount_value);
+            return '<tr><td>'+r.name+'</td><td><code>'+r.code+'</code></td><td>'+r.discount_type+'</td><td>'+val+
+                   '</td><td>'+r.apply_scope+'</td><td>'+r.valid_from+' → '+r.valid_until+'</td></tr>';
+          }).join('');
+          html += '</tbody></table>'; $('#list').innerHTML = html;
+        }
+        function refresh(){
+          var sid = document.querySelector('input[name=store_id]').value.trim();
+          if(!sid){ $('#list').innerHTML = '<p class="muted">Ingresá Store ID arriba.</p>'; return; }
+          $('#list').textContent = 'Cargando…';
+          listCampaigns(sid).then(renderList).catch(()=> $('#list').innerHTML='<p class="muted">Error cargando campañas.</p>');
+        }
+        function maybeLoadCats(){
+          var scope = document.querySelector('#apply_scope').value;
+          var block = document.querySelector('#cats_block');
+          if(scope !== 'categories'){ block.style.display='none'; return; }
+          block.style.display='block';
+          var sid = document.querySelector('input[name=store_id]').value.trim();
+          if(!sid){ document.querySelector('#msg').textContent='Ingresá Store ID para cargar categorías'; return; }
+          document.querySelector('#msg').textContent='Cargando categorías…';
+          fetchCategories(sid).then(function(cats){
+            var inc = document.querySelector('#include_categories');
+            var exc = document.querySelector('#exclude_categories');
+            inc.innerHTML = cats.map(c=> '<option value="'+c.id+'">'+c.name+'</option>').join('');
+            exc.innerHTML = cats.map(c=> '<option value="'+c.id+'">'+c.name+'</option>').join('');
+            document.querySelector('#msg').textContent='';
+          }).catch(()=> document.querySelector('#msg').textContent='No se pudieron cargar categorías');
+        }
+        document.querySelector('#apply_scope').addEventListener('change', maybeLoadCats);
+        document.querySelector('#f').addEventListener('submit', function(ev){
+          ev.preventDefault(); document.querySelector('#msg').textContent='Creando…';
+          var payload = formToPayload(ev.target);
+          api('/api/campaigns', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
+            .then(()=>{ document.querySelector('#msg').textContent='Campaña creada ✅'; refresh(); })
+            .catch(e=>{ document.querySelector('#msg').textContent='Error: ' + (e.detail||e.message||'No se pudo crear'); });
+        });
+        document.querySelector('#reload').addEventListener('click', refresh);
+        window.addEventListener('load', refresh);
+      </script>
+    `;
+    return layout("Campañas", main);
+  };
+
+  const html = (view === "campaigns") ? campaigns() : home();
+  return res.end(html);
 });
 
 
