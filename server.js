@@ -682,6 +682,177 @@ app.get("/api/metrics/export.csv", (_req, res) => {
   res.send(rows.join("\n"));
 });
 
+// ================== Métricas Home ==================
+function monthRange(offset = 0) {
+  const now = new Date();
+  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1));
+  const to   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset + 1, 1));
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
+function pctChange(curr, prev) {
+  if (!prev || prev === 0) return curr > 0 ? 100 : 0;
+  return Math.round(((curr - prev) / prev) * 100);
+}
+
+// GET /api/metrics/summary?store_id=...
+app.get("/api/metrics/summary", async (req, res) => {
+  try {
+    const store_id = String(req.query.store_id || "").trim();
+    if (!pool) return res.status(500).json({ ok:false, error:"DB no configurada" });
+    if (!store_id) return res.status(400).json({ ok:false, error:"Falta store_id" });
+
+    const { from: mFrom, to: mTo } = monthRange(0);
+    const { from: pFrom, to: pTo } = monthRange(-1);
+
+    // Totales mes actual
+    const [{ rows: r1 }, { rows: r2 }, { rows: r3 }] = await Promise.all([
+      pool.query(
+        `SELECT COALESCE(SUM(applied_amount),0)::numeric AS total
+           FROM coupon_ledger
+          WHERE store_id=$1 AND created_at >= $2 AND created_at < $3`,
+        [store_id, mFrom, mTo]
+      ),
+      pool.query(
+        `SELECT COUNT(DISTINCT COALESCE(order_id, checkout_id))::int AS orders
+           FROM coupon_ledger
+          WHERE store_id=$1 AND created_at >= $2 AND created_at < $3`,
+        [store_id, mFrom, mTo]
+      ),
+      pool.query(
+        `SELECT COUNT(DISTINCT customer_id)::int AS customers
+           FROM coupon_ledger
+          WHERE store_id=$1 AND customer_id IS NOT NULL
+            AND created_at >= $2 AND created_at < $3`,
+        [store_id, mFrom, mTo]
+      )
+    ]);
+
+    const month_total     = Number(r1[0]?.total || 0);
+    const month_orders    = Number(r2[0]?.orders || 0);
+    const month_customers = Number(r3[0]?.customers || 0);
+
+    // Totales mes anterior (para %)
+    const [{ rows: pr1 }, { rows: pr2 }, { rows: pr3 }] = await Promise.all([
+      pool.query(
+        `SELECT COALESCE(SUM(applied_amount),0)::numeric AS total
+           FROM coupon_ledger
+          WHERE store_id=$1 AND created_at >= $2 AND created_at < $3`,
+        [store_id, pFrom, pTo]
+      ),
+      pool.query(
+        `SELECT COUNT(DISTINCT COALESCE(order_id, checkout_id))::int AS orders
+           FROM coupon_ledger
+          WHERE store_id=$1 AND created_at >= $2 AND created_at < $3`,
+        [store_id, pFrom, pTo]
+      ),
+      pool.query(
+        `SELECT COUNT(DISTINCT customer_id)::int AS customers
+           FROM coupon_ledger
+          WHERE store_id=$1 AND customer_id IS NOT NULL
+            AND created_at >= $2 AND created_at < $3`,
+        [store_id, pFrom, pTo]
+      )
+    ]);
+
+    const prev_total     = Number(pr1[0]?.total || 0);
+    const prev_orders    = Number(pr2[0]?.orders || 0);
+    const prev_customers = Number(pr3[0]?.customers || 0);
+
+    // Top campaña del mes (por $ aplicado)
+    const { rows: topRows } = await pool.query(
+      `
+      WITH m AS (
+        SELECT UPPER(code) AS code, SUM(applied_amount)::numeric AS amt
+          FROM coupon_ledger
+         WHERE store_id=$1 AND created_at >= $2 AND created_at < $3
+         GROUP BY 1
+      ),
+      t AS (SELECT SUM(amt)::numeric AS total FROM m)
+      SELECT c.name, c.code, m.amt,
+             CASE WHEN t.total>0 THEN ROUND(100*m.amt/t.total,1) ELSE 0 END AS share
+        FROM m JOIN t ON true
+        LEFT JOIN campaigns c
+               ON c.store_id=$1 AND UPPER(c.code)=m.code AND c.status='active'
+       ORDER BY m.amt DESC NULLS LAST
+       LIMIT 1
+      `,
+      [store_id, mFrom, mTo]
+    );
+
+    res.json({
+      ok: true,
+      month: {
+        total_discount: month_total,
+        orders_with_coupon: month_orders,
+        customers: month_customers,
+        change_vs_prev: {
+          total_discount_pct:  pctChange(month_total, prev_total),
+          orders_with_coupon_pct: pctChange(month_orders, prev_orders),
+          customers_pct: pctChange(month_customers, prev_customers),
+        },
+        top_campaign: topRows[0] || null
+      }
+    });
+  } catch (e) {
+    // si aún no existe coupon_ledger, devolvemos ceros
+    const msg = String(e.message || e);
+    if (/relation .*coupon_ledger.* does not exist/i.test(msg)) {
+      return res.json({
+        ok: true,
+        month: {
+          total_discount: 0,
+          orders_with_coupon: 0,
+          customers: 0,
+          change_vs_prev: { total_discount_pct: 0, orders_with_coupon_pct: 0, customers_pct: 0 },
+          top_campaign: null
+        }
+      });
+    }
+    console.error("GET /api/metrics/summary error:", e);
+    res.status(500).json({ ok:false, error: msg });
+  }
+});
+
+// GET /api/metrics/series/daily?store_id=...
+app.get("/api/metrics/series/daily", async (req, res) => {
+  try {
+    const store_id = String(req.query.store_id || "").trim();
+    if (!pool) return res.status(500).json({ ok:false, error:"DB no configurada" });
+    if (!store_id) return res.status(400).json({ ok:false, error:"Falta store_id" });
+
+    const { from: mFrom, to: mTo } = monthRange(0);
+
+    const [{ rows: uses }, { rows: amounts }] = await Promise.all([
+      pool.query(
+        `SELECT date_trunc('day', created_at)::date AS day, COUNT(*)::int AS uses
+           FROM coupon_ledger
+          WHERE store_id=$1 AND created_at >= $2 AND created_at < $3
+          GROUP BY 1 ORDER BY 1`,
+        [store_id, mFrom, mTo]
+      ),
+      pool.query(
+        `SELECT date_trunc('day', created_at)::date AS day, COALESCE(SUM(applied_amount),0)::numeric AS amount
+           FROM coupon_ledger
+          WHERE store_id=$1 AND created_at >= $2 AND created_at < $3
+          GROUP BY 1 ORDER BY 1`,
+        [store_id, mFrom, mTo]
+      )
+    ]);
+
+    res.json({ ok:true, uses_per_day: uses, amount_per_day: amounts });
+  } catch (e) {
+    const msg = String(e.message || e);
+    if (/relation .*coupon_ledger.* does not exist/i.test(msg)) {
+      return res.json({ ok:true, uses_per_day: [], amount_per_day: [] });
+    }
+    console.error("GET /api/metrics/series/daily error:", e);
+    res.status(500).json({ ok:false, error: msg });
+  }
+});
+// ================ /Métricas Home ==================
+
+
 // -------------------- Discounts Callback (motor) --------------------
 app.post("/discounts/callback", async (req, res) => {
   try {
