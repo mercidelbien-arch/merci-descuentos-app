@@ -798,6 +798,54 @@ app.get("/api/campaigns/active", async (req, res) => {
   }
 });
 
+// -------------------- API: cupones vigentes --------------------
+app.get("/api/campaigns/active", async (req, res) => {
+  try {
+    const store_id = String(req.query.store_id || "").trim();
+    if (!store_id) return res.json([]);
+
+    const sqlWithLedger = `
+      SELECT c.id, c.code, c.name, c.discount_type, c.discount_value,
+             c.apply_scope, c.valid_from, c.valid_until, c.status,
+             COALESCE(u.uses,0)::int AS uses
+        FROM campaigns c
+   LEFT JOIN (
+          SELECT store_id, UPPER(code) AS code, COUNT(*)::int AS uses
+            FROM coupon_ledger
+           GROUP BY 1,2
+        ) u
+          ON u.store_id = c.store_id AND UPPER(c.code) = u.code
+       WHERE c.store_id = $1
+         AND c.status = 'active'
+         AND (c.valid_from IS NULL OR c.valid_from <= CURRENT_DATE)
+         AND (c.valid_until IS NULL OR c.valid_until >= CURRENT_DATE)
+       ORDER BY c.created_at DESC`;
+    try {
+      const { rows } = await pool.query(sqlWithLedger, [store_id]);
+      return res.json(rows);
+    } catch (e) {
+      // Si aún no existe coupon_ledger → devolvemos sin "uses"
+      if (/relation .*coupon_ledger.* does not exist/i.test(String(e.message||e))) {
+        const { rows } = await pool.query(`
+          SELECT id, code, name, discount_type, discount_value,
+                 apply_scope, valid_from, valid_until, status,
+                 0::int AS uses
+            FROM campaigns
+           WHERE store_id = $1
+             AND status='active'
+             AND (valid_from IS NULL OR valid_from <= CURRENT_DATE)
+             AND (valid_until IS NULL OR valid_until >= CURRENT_DATE)
+           ORDER BY created_at DESC`, [store_id]);
+        return res.json(rows);
+      }
+      throw e;
+    }
+  } catch (err) {
+    console.error("GET /api/campaigns/active error:", err);
+    res.status(500).json({ message: "Error al obtener cupones activos" });
+  }
+});
+
 // ================== Métricas Home ==================
 function monthRange(offset = 0) {
   const now = new Date();
