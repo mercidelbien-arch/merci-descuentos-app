@@ -300,270 +300,261 @@ app.all("/api/tn/scripts/install/direct", async (req, res) => {
   }
 });
 
-// -------------------- Admin (layout único: home/campaigns) --------------------
+// ===== Admin: layout único con vistas (home, campaigns, create) =====
 app.get("/admin", (req, res) => {
   const store_id = String(req.query.store_id || "").trim();
-  const view = String(req.query.view || "home"); // 'home' | 'campaigns'
+  const view = String(req.query.view || "home"); // 'home' | 'campaigns' | 'create'
   res.setHeader("Content-Type", "text/html; charset=utf-8");
 
-  const nav = `
-    <nav class="nav">
-      <a class="${view==='home'?'active':''}" href="/admin?store_id=${store_id}&view=home">Página principal</a>
-      <a class="${view==='campaigns'?'active':''}" href="/admin?store_id=${store_id}&view=campaigns">Campañas</a>
-      <a href="#" onclick="alert('Próximo');return false;">Categorías</a>
-      <a href="#" onclick="alert('Próximo');return false;">Redenciones</a>
-      <a href="#" onclick="alert('Próximo');return false;">Clientes</a>
-      <a href="/api/health" target="_blank">Salud & Logs</a>
-    </nav>
-  `;
-
-  const layout = (title, mainHtml) => `<!doctype html>
-  <html lang="es"><head><meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>${title} · Merci</title>
-  <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial;margin:0;background:#f7f8fa;color:#0f172a}
-    .layout{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
-    .aside{background:#fff;border-right:1px solid #e5e7eb;padding:20px}
-    .brand{font-weight:700;margin-bottom:16px}
-    .nav a{display:block;padding:10px 12px;border-radius:10px;color:#0f172a;text-decoration:none;margin:4px 0}
-    .nav a.active{background:#eef2ff;color:#4338ca}
-    .main{padding:24px}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
-    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:18px}
-    .kpi{font-size:30px;font-weight:800;margin:6px 0}
-    .muted{color:#64748b;font-size:14px}
-    .btn{background:#111;color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}
-    input,select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px}
-    .row{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-    .row3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-    table{width:100%;border-collapse:collapse;margin-top:12px}
-    th,td{border-bottom:1px solid #eee;text-align:left;padding:8px}
-  </style></head>
-  <body>
+  const layout = (title, inner) => `
+  <!doctype html>
+  <html lang="es"><head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>${title} · Merci</title>
+    <style>
+      :root{--bg:#f7f8fa;--card:#fff;--muted:#64748b;--line:#e5e7eb;--brand:#4338ca}
+      body{margin:0;background:var(--bg);color:#0f172a;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial}
+      .layout{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+      .aside{background:#fff;border-right:1px solid var(--line);padding:20px}
+      .brand{font-weight:700;margin:0 0 8px}
+      .nav a{display:block;padding:10px 12px;border-radius:10px;color:#0f172a;text-decoration:none;margin:4px 0}
+      .nav a.active{background:#eef2ff;color:var(--brand)}
+      .main{padding:24px}
+      .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+      .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
+      .card{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:18px}
+      .tile{cursor:pointer;transition:.15s;text-decoration:none;color:inherit}
+      .tile:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,.08)}
+      .icon{width:40px;height:40px;border-radius:10px;background:#eef2ff;display:flex;align-items:center;justify-content:center;margin-bottom:10px}
+      .title{font-weight:700;margin:0 0 4px}
+      .muted{color:var(--muted);font-size:14px;margin:0}
+      .btn{display:inline-block;padding:10px 14px;border-radius:10px;color:#fff;background:var(--brand);text-decoration:none}
+      .kpi{font-size:28px;font-weight:800;margin:6px 0}
+      /* tabla/inputs del form existente */
+      label{display:block;font-size:12px;color:#555;margin-top:10px}
+      input,select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;margin-top:6px}
+      .row{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+      .row3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    </style>
+  </head><body>
     <div class="layout">
       <aside class="aside">
-        <div class="brand">Merci Descuentos</div>
-        ${nav}
+        <h3 class="brand">Merci Descuentos</h3>
+        <nav class="nav">
+          <a href="/admin/?store_id=${store_id}&view=home" class="${view==='home'?'active':''}">Página principal</a>
+          <a href="/admin/?store_id=${store_id}&view=campaigns" class="${view==='campaigns'?'active':''}">Campañas</a>
+          <a href="#" onclick="alert('Próximo');return false;">Categorías</a>
+          <a href="#" onclick="alert('Próximo');return false;">Redenciones</a>
+          <a href="#" onclick="alert('Próximo');return false;">Clientes</a>
+          <a href="/api/health" target="_blank">Salud & Logs</a>
+        </nav>
       </aside>
-      <main class="main">
-        ${mainHtml}
-      </main>
+      <main class="main">${inner}</main>
     </div>
   </body></html>`;
 
-  // --------- HOME (dashboard con tarjetas + gráfico mock) ---------
-const home = () => {
-  const d = new Date();
-  const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-  const mesAnio = meses[d.getMonth()].charAt(0).toUpperCase() + meses[d.getMonth()].slice(1) + " " + d.getFullYear();
-
-  const main = `
-    <div class="head" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div>
-        <h1 style="margin:0">Página principal</h1>
-        <div class="muted">Resumen analítico — ${mesAnio}</div>
+  // -------- HOME (resumen mock como antes) --------
+  const home = () => {
+    const d = new Date(), meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+    const mesAnio = meses[d.getMonth()].charAt(0).toUpperCase()+meses[d.getMonth()].slice(1)+" "+d.getFullYear();
+    return `
+      <div class="head">
+        <div>
+          <h1 style="margin:0">Página principal</h1>
+          <div class="muted">Resumen analítico — ${mesAnio}</div>
+        </div>
+        <div style="display:flex;gap:10px">
+          <a class="btn" href="/api/metrics/export.csv?store_id=${store_id}" style="background:#e5e7eb;color:#111">Exportar CSV</a>
+          <a class="btn" href="/admin/?store_id=${store_id}&view=campaigns">Crear campaña</a>
+        </div>
       </div>
-      <div style="display:flex;gap:10px">
-        <a class="btn" style="background:#e5e7eb;color:#111" href="/api/metrics/export.csv?store_id=${store_id}">Exportar CSV</a>
-        <a class="btn" style="background:#4338ca" href="/admin?store_id=${store_id}&view=campaigns">Crear campaña</a>
+      <div class="grid">
+        <div class="card"><div class="muted">Monto total descontado</div><div class="kpi">$ 428.450</div><div class="muted">Suma de descuentos aplicados en el mes</div><div class="muted">Vs. mes anterior · <span style="color:#16a34a">+18%</span></div></div>
+        <div class="card"><div class="muted">Pedidos con descuento</div><div class="kpi">286</div><div class="muted">Órdenes con al menos 1 cupón</div><div class="muted">Vs. mes anterior · <span style="color:#16a34a">+11%</span></div></div>
+        <div class="card"><div class="muted">Clientes beneficiados</div><div class="kpi">241</div><div class="muted">Únicos en el mes</div></div>
+        <div class="card"><div class="muted">Top campaña activa</div><div class="kpi">10% en Secos</div><div class="muted">Participación 42%</div></div>
       </div>
-    </div>
-
-    <div class="grid">
-      <div class="card">
-        <div class="muted">Monto total descontado</div>
-        <div class="kpi">$ 428.450</div>
-        <div class="muted">Suma de descuentos aplicados en el mes</div>
-        <div class="muted">Vs. mes anterior · <span style="color:#16a34a">+18%</span></div>
+      <div class="card" style="margin-top:16px">
+        <h3 style="margin:0 0 10px">Usos por día</h3>
+        <canvas id="chart" width="980" height="300"></canvas>
       </div>
-      <div class="card">
-        <div class="muted">Pedidos con descuento</div>
-        <div class="kpi">286</div>
-        <div class="muted">Órdenes con al menos 1 cupón</div>
-        <div class="muted">Vs. mes anterior · <span style="color:#16a34a">+11%</span></div>
-      </div>
-      <div class="card">
-        <div class="muted">Clientes beneficiados</div>
-        <div class="kpi">241</div>
-        <div class="muted">Únicos en el mes</div>
-      </div>
-      <div class="card">
-        <div class="muted">Top campaña activa</div>
-        <div class="kpi">10% en Secos</div>
-        <div class="muted">Participación 42%</div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:16px">
-      <h3 style="margin:0 0 10px">Usos por día</h3>
-      <canvas id="chart" width="980" height="300"></canvas>
-    </div>
-
-    <script>
-      (function(){
-        var c = document.getElementById('chart'); if(!c) return;
-        var ctx = c.getContext('2d'), W=c.width, H=c.height, L=30;
-        var data = Array.from({length:L}, (_,i)=> 8 + Math.round(10*Math.abs(Math.sin(i/3)) + (Math.random()*4-2)));
-        // ejes
-        ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(40,10); ctx.lineTo(40,H-30); ctx.lineTo(W-10,H-30); ctx.stroke();
-        // línea
-        var max=Math.max.apply(null,data), min=Math.min.apply(null,data);
-        var dx=(W-70)/(L-1), scale=(H-60)/(max-min || 1);
-        ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 2; ctx.beginPath();
-        data.forEach(function(v,i){ var x=40+i*dx, y=(H-30)-(v-min)*scale; i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
-        ctx.stroke();
-      })();
-    </script>
-  `;
-  return layout("Página principal", main);
-};
-
-
-  // --------- CAMPAIGNS (form que ya tenías) ---------
-  const campaigns = () => {
-    const main = `
-      <h1 style="margin:0 0 6px">Cupones Merci — <span class="muted">Tienda ${store_id||''}</span></h1>
-      <p class="muted">Crear y segmentar campañas por categorías.</p>
-
-      <div class="card">
-        <h3>Nueva campaña</h3>
-        <form id="f">
-          <div class="row">
-            <div><label>Store ID</label><input name="store_id" value="${store_id||''}" required></div>
-            <div><label>Código del cupón</label><input name="code" placeholder="EJ: GIMNASIO10" required></div>
-          </div>
-
-          <label>Nombre interno</label>
-          <input name="name" placeholder="EJ: Convenio Gimnasios 10%" required>
-
-          <div class="row">
-            <div>
-              <label>Tipo de descuento</label>
-              <select name="discount_type"><option value="percent" selected>%</option><option value="fixed">Monto fijo</option></select>
-            </div>
-            <div><label>Valor</label><input name="discount_value" type="number" step="1" value="10" required></div>
-          </div>
-
-          <div class="row">
-            <div><label>Vigencia desde</label><input name="valid_from" type="date" required></div>
-            <div><label>Vigencia hasta</label><input name="valid_until" type="date" required></div>
-          </div>
-
-          <div class="row3">
-            <div>
-              <label>Ámbito</label>
-              <select name="apply_scope" id="apply_scope">
-                <option value="all" selected>Toda la tienda</option>
-                <option value="categories">Categorías incluidas</option>
-                <option value="products">Productos (próximo)</option>
-              </select>
-            </div>
-            <div><label>Mínimo carrito</label><input name="min_cart_amount" type="number" step="1" value="0"></div>
-            <div>
-              <label>Excluir productos en oferta</label>
-              <select name="exclude_sale_items"><option value="false" selected>No</option><option value="true">Sí</option></select>
-            </div>
-          </div>
-
-          <div id="cats_block" style="display:none">
-            <label>Categorías para incluir (Ctrl/Cmd + clic para múltiples)</label>
-            <select id="include_categories" multiple style="min-height:120px"></select>
-            <label style="margin-top:12px">Categorías a excluir</label>
-            <select id="exclude_categories" multiple style="min-height:120px"></select>
-          </div>
-
-          <div style="margin-top:12px;display:flex;gap:10px">
-            <button type="submit" class="btn">Crear campaña</button>
-            <button type="button" id="reload" class="btn" style="background:#334155">Actualizar lista</button>
-            <a class="btn" style="background:#4338ca" href="/admin?store_id=${store_id}&view=home">Volver al inicio</a>
-          </div>
-        </form>
-        <div id="msg" class="muted" style="margin-top:8px"></div>
-      </div>
-
-      <div class="card">
-        <h3>Campañas existentes</h3>
-        <div id="list" class="muted">Cargando…</div>
-      </div>
-
       <script>
-        const $ = (s,el)=> (el||document).querySelector(s);
-        const toBool = v => String(v) === 'true';
-        const selectedIds = sel => Array.from(sel.selectedOptions).map(o=> Number(o.value));
-        function formToPayload(form){
-          var fd = new FormData(form);
-          var p = {
-            store_id: fd.get('store_id'),
-            code: fd.get('code'),
-            name: fd.get('name'),
-            discount_type: fd.get('discount_type'),
-            discount_value: Number(fd.get('discount_value')),
-            valid_from: fd.get('valid_from'),
-            valid_until: fd.get('valid_until'),
-            apply_scope: fd.get('apply_scope'),
-            min_cart_amount: Number(fd.get('min_cart_amount')||0),
-            exclude_sale_items: toBool(fd.get('exclude_sale_items'))
-          };
-          if (p.apply_scope === 'categories'){
-            p.include_category_ids = selectedIds($('#include_categories'));
-            p.exclude_category_ids = selectedIds($('#exclude_categories'));
-          }
-          return p;
-        }
-        function api(path, opts){ return fetch(path, opts).then(r=> r.json().then(d=>{ if(!r.ok) throw d; return d; })); }
-        function listCampaigns(sid){ return api('/api/campaigns?store_id='+encodeURIComponent(sid)); }
-        function fetchCategories(sid){ return api('/api/tn/categories?store_id='+encodeURIComponent(sid)); }
-        function renderList(rows){
-          if(!rows || rows.length===0){ $('#list').innerHTML='<p class="muted">No hay campañas.</p>'; return; }
-          var html = '<table><thead><tr><th>Nombre</th><th>Código</th><th>Tipo</th><th>Valor</th><th>Ámbito</th><th>Vigencia</th></tr></thead><tbody>';
-          html += rows.map(function(r){
-            var val = r.discount_type==='percent' ? (r.discount_value + '%') : ('$' + r.discount_value);
-            return '<tr><td>'+r.name+'</td><td><code>'+r.code+'</code></td><td>'+r.discount_type+'</td><td>'+val+
-                   '</td><td>'+r.apply_scope+'</td><td>'+r.valid_from+' → '+r.valid_until+'</td></tr>';
-          }).join('');
-          html += '</tbody></table>'; $('#list').innerHTML = html;
-        }
-        function refresh(){
-          var sid = document.querySelector('input[name=store_id]').value.trim();
-          if(!sid){ $('#list').innerHTML = '<p class="muted">Ingresá Store ID arriba.</p>'; return; }
-          $('#list').textContent = 'Cargando…';
-          listCampaigns(sid).then(renderList).catch(()=> $('#list').innerHTML='<p class="muted">Error cargando campañas.</p>');
-        }
-        function maybeLoadCats(){
-          var scope = document.querySelector('#apply_scope').value;
-          var block = document.querySelector('#cats_block');
-          if(scope !== 'categories'){ block.style.display='none'; return; }
-          block.style.display='block';
-          var sid = document.querySelector('input[name=store_id]').value.trim();
-          if(!sid){ document.querySelector('#msg').textContent='Ingresá Store ID para cargar categorías'; return; }
-          document.querySelector('#msg').textContent='Cargando categorías…';
-          fetchCategories(sid).then(function(cats){
-            var inc = document.querySelector('#include_categories');
-            var exc = document.querySelector('#exclude_categories');
-            inc.innerHTML = cats.map(c=> '<option value="'+c.id+'">'+c.name+'</option>').join('');
-            exc.innerHTML = cats.map(c=> '<option value="'+c.id+'">'+c.name+'</option>').join('');
-            document.querySelector('#msg').textContent='';
-          }).catch(()=> document.querySelector('#msg').textContent='No se pudieron cargar categorías');
-        }
-        document.querySelector('#apply_scope').addEventListener('change', maybeLoadCats);
-        document.querySelector('#f').addEventListener('submit', function(ev){
-          ev.preventDefault(); document.querySelector('#msg').textContent='Creando…';
-          var payload = formToPayload(ev.target);
-          api('/api/campaigns', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
-            .then(()=>{ document.querySelector('#msg').textContent='Campaña creada ✅'; refresh(); })
-            .catch(e=>{ document.querySelector('#msg').textContent='Error: ' + (e.detail||e.message||'No se pudo crear'); });
-        });
-        document.querySelector('#reload').addEventListener('click', refresh);
-        window.addEventListener('load', refresh);
-      </script>
-    `;
-    return layout("Campañas", main);
+        (function(){var c=document.getElementById('chart');if(!c)return;var x=c.getContext('2d'),W=c.width,H=c.height,L=30;
+          var d=Array.from({length:L},(_,i)=>8+Math.round(10*Math.abs(Math.sin(i/3))+(Math.random()*4-2)));
+          x.strokeStyle='#e5e7eb';x.beginPath();x.moveTo(40,10);x.lineTo(40,H-30);x.lineTo(W-10,H-30);x.stroke();
+          var max=Math.max.apply(null,d),min=Math.min.apply(null,d),dx=(W-70)/(L-1),sc=(H-60)/(max-min||1);
+          x.strokeStyle='#2563eb';x.lineWidth=2;x.beginPath();
+          d.forEach(function(v,i){var X=40+i*dx,Y=(H-30)-(v-min)*sc;i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke();
+        })();
+      </script>`;
   };
 
-  const html = (view === "campaigns") ? campaigns() : home();
-  return res.end(html);
+  // -------- CAMPAIGNS (grilla de “botones”) --------
+  const campaigns = () => `
+    <div class="head"><h1 style="margin:0">Campañas</h1></div>
+    <div class="grid">
+      <a class="card tile" href="/admin/?store_id=${store_id}&view=create">
+        <div class="icon">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#4338ca" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="7" cy="7" r="1.5"></circle><circle cx="17" cy="17" r="1.5"></circle><path d="M7 17L17 7"></path>
+          </svg>
+        </div>
+        <h3 class="title">Cupones %</h3>
+        <p class="muted">Descuento en subtotal del carrito usando código.</p>
+      </a>
+      <div class="card tile" onclick="alert('Próximo: 3x2')">
+        <div class="icon"></div><h3 class="title">3×2</h3><p class="muted">Llevá X, pagá Y (próximo).</p>
+      </div>
+      <div class="card tile" onclick="alert('Próximo: Progresivo')">
+        <div class="icon"></div><h3 class="title">Progresivo</h3><p class="muted">Descuento por cantidad (próximo).</p>
+      </div>
+    </div>
+  `;
+
+  // -------- CREATE (tu formulario actual) --------
+  const create = () => `
+    <h1 style="margin:0 0 8px">Cupones Merci — <span class="muted">Tienda ${store_id||''}</span></h1>
+    <p class="muted">Crear y segmentar campañas por categorías.</p>
+    <div class="card">
+      <h3>Nueva campaña</h3>
+      <form id="f">
+        <div class="row">
+          <div><label>Store ID</label><input name="store_id" value="${store_id||''}" required></div>
+          <div><label>Código del cupón</label><input name="code" placeholder="EJ: GIMNASIO10" required></div>
+        </div>
+        <label>Nombre interno</label>
+        <input name="name" placeholder="EJ: Convenio Gimnasios 10%" required>
+        <div class="row">
+          <div><label>Tipo de descuento</label>
+            <select name="discount_type"><option value="percent" selected>%</option><option value="fixed">Monto fijo</option></select>
+          </div>
+          <div><label>Valor</label><input name="discount_value" type="number" step="1" value="10" required></div>
+        </div>
+        <div class="row">
+          <div><label>Vigencia desde</label><input name="valid_from" type="date" required></div>
+          <div><label>Vigencia hasta</label><input name="valid_until" type="date" required></div>
+        </div>
+        <div class="row3">
+          <div>
+            <label>Ámbito</label>
+            <select name="apply_scope" id="apply_scope">
+              <option value="all" selected>Toda la tienda</option>
+              <option value="categories">Categorías incluidas</option>
+              <option value="products">Productos (próximo)</option>
+            </select>
+          </div>
+          <div><label>Mínimo carrito</label><input name="min_cart_amount" type="number" step="1" value="0"></div>
+          <div><label>Excluir productos en oferta</label>
+            <select name="exclude_sale_items"><option value="false" selected>No</option><option value="true">Sí</option></select>
+          </div>
+        </div>
+        <div id="cats_block" style="display:none">
+          <label>Categorías para incluir (Ctrl/Cmd + clic para múltiples)</label>
+          <select id="include_categories" class="multi" multiple></select>
+          <label style="margin-top:12px">Categorías a excluir</label>
+          <select id="exclude_categories" class="multi" multiple></select>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:10px">
+          <button type="submit" class="btn">Crear campaña</button>
+          <a class="btn" href="/admin/?store_id=${store_id}&view=campaigns" style="background:#e5e7eb;color:#111">Volver</a>
+        </div>
+        <div id="msg" class="muted" style="margin-top:8px"></div>
+      </form>
+    </div>
+
+    <div class="card"><h3>Campañas existentes</h3><div id="list" class="muted">Cargando…</div></div>
+
+    <script>
+      const $ = (s, el)=> (el||document).querySelector(s);
+      const toBool = v => String(v) === 'true';
+      const selectedIds = sel => Array.from(sel.selectedOptions).map(o=> Number(o.value));
+      function formToPayload(f){
+        var fd = new FormData(f);
+        var p = {
+          store_id: fd.get('store_id'),
+          code: fd.get('code'),
+          name: fd.get('name'),
+          discount_type: fd.get('discount_type'),
+          discount_value: Number(fd.get('discount_value')),
+          valid_from: fd.get('valid_from'),
+          valid_until: fd.get('valid_until'),
+          apply_scope: fd.get('apply_scope'),
+          min_cart_amount: Number(fd.get('min_cart_amount') || 0),
+          exclude_sale_items: toBool(fd.get('exclude_sale_items'))
+        };
+        if (p.apply_scope === 'categories'){
+          p.include_category_ids = selectedIds($('#include_categories'));
+          p.exclude_category_ids = selectedIds($('#exclude_categories'));
+        }
+        return p;
+      }
+      function api(path, opts){ return fetch(path, opts).then(r=>r.json().then(d=>{ if(!r.ok) throw d; return d; })); }
+      function listCampaigns(sid){ return api('/api/campaigns?store_id='+encodeURIComponent(sid)); }
+      function fetchCategories(sid){ return api('/api/tn/categories?store_id='+encodeURIComponent(sid)); }
+      function renderList(rows){
+        if(!rows || rows.length===0){ $('#list').innerHTML='<p class="muted">No hay campañas.</p>'; return; }
+        var html='<table style="width:100%;border-collapse:collapse"><thead><tr>'+
+          '<th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Nombre</th>'+
+          '<th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Código</th>'+
+          '<th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Tipo</th>'+
+          '<th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Valor</th>'+
+          '<th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Ámbito</th>'+
+          '<th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Vigencia</th>'+
+          '</tr></thead><tbody>';
+        html += rows.map(function(r){
+          var val = r.discount_type==='percent' ? (r.discount_value+'%') : ('$'+r.discount_value);
+          return '<tr>'+
+            '<td style="padding:8px;border-bottom:1px solid #eee">'+r.name+'</td>'+
+            '<td style="padding:8px;border-bottom:1px solid #eee"><code>'+r.code+'</code></td>'+
+            '<td style="padding:8px;border-bottom:1px solid #eee">'+r.discount_type+'</td>'+
+            '<td style="padding:8px;border-bottom:1px solid #eee">'+val+'</td>'+
+            '<td style="padding:8px;border-bottom:1px solid #eee">'+r.apply_scope+'</td>'+
+            '<td style="padding:8px;border-bottom:1px solid #eee">'+r.valid_from+' → '+r.valid_until+'</td>'+
+          '</tr>';
+        }).join('') + '</tbody></table>';
+        $('#list').innerHTML = html;
+      }
+      function refresh(){
+        var sid = document.querySelector('input[name=store_id]').value.trim();
+        if(!sid){ $('#list').innerHTML='<p class="muted">Ingresá Store ID arriba.</p>'; return; }
+        $('#list').textContent='Cargando…';
+        listCampaigns(sid).then(renderList).catch(()=> $('#list').innerHTML='<p class="muted">Error cargando campañas.</p>');
+      }
+      function maybeLoadCats(){
+        var scope = document.querySelector('#apply_scope').value;
+        var block = document.querySelector('#cats_block');
+        if(scope!=='categories'){ block.style.display='none'; return; }
+        block.style.display='block';
+        var sid = document.querySelector('input[name=store_id]').value.trim();
+        if(!sid){ $('#msg').textContent='Ingresá Store ID para cargar categorías'; return; }
+        $('#msg').textContent='Cargando categorías…';
+        fetchCategories(sid).then(function(cats){
+          var inc = document.querySelector('#include_categories');
+          var exc = document.querySelector('#exclude_categories');
+          inc.innerHTML = cats.map(c=> '<option value="'+c.id+'">'+c.name+'</option>').join('');
+          exc.innerHTML = cats.map(c=> '<option value="'+c.id+'">'+c.name+'</option>').join('');
+          $('#msg').textContent='';
+        }).catch(()=> $('#msg').textContent='No se pudieron cargar categorías');
+      }
+      document.querySelector('#apply_scope').addEventListener('change', maybeLoadCats);
+      document.querySelector('#f').addEventListener('submit', function(ev){
+        ev.preventDefault(); $('#msg').textContent='Creando…';
+        var payload = formToPayload(ev.target);
+        api('/api/campaigns', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+          .then(function(){ $('#msg').textContent='Campaña creada ✅'; refresh(); })
+          .catch(function(e){ $('#msg').textContent='Error: '+(e.detail||e.message||'No se pudo crear'); });
+      });
+      window.addEventListener('load', refresh);
+    </script>
+  `;
+
+  const body =
+    view === "campaigns" ? campaigns()
+  : view === "create"    ? create()
+  :                       home();
+
+  res.end(layout("Panel de administración", body));
 });
 
 
