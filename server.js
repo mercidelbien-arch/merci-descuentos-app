@@ -758,10 +758,10 @@ app.get("/admin", async (req, res) => {
     "        <select id=\"exclude_categories\" class=\"multi\" multiple></select>\n" +
     "      </div>\n" +
     "\n" +
-    "      <div style=\"margin-top:12px;display:flex;gap:10px\">\n" +
-    "        <button type=\"submit\">Crear campaña</button>\n" +
-    "        <button type=\"button\" id=\"reload\">Actualizar lista</button>\n" +
-    "      </div>\n" +
+    "    <div style=\"margin-top:12px;display:flex;gap:10px\">\n" +
+"        <button type=\"button\" onclick=\"window.location.href='/admin?store_id=3739596'\">Crear campaña</button>\n" +
+"        <button type=\"button\" id=\"reload\">Actualizar lista</button>\n" +
+"      </div>\n" +
     "    </form>\n" +
     "    <div id=\"msg\" class=\"muted\" style=\"margin-top:8px\"></div>\n" +
     "  </div>\n" +
