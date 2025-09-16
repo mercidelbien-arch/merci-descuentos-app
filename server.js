@@ -38,11 +38,8 @@ app.use(cookieSession({
 // Widget estático (solo /widget)
 app.use("/widget", express.static(path.join(__dirname, "public"), { maxAge: "1h" }));
 
-// ⛔️ IMPORTANTE: NO servir /admin como estático (esto rompía /admin/campaigns)
-// Eliminado:
-//   const adminDist = path.join(__dirname, 'admin', 'dist');
-//   app.use('/admin', express.static(adminDist));
-//   app.get('/admin/*', ...)
+// ⛔️ NO servir /admin como estático (rompe las subrutas)
+// (Dejado explícitamente deshabilitado)
 
 // -------------------- Salud --------------------
 app.get("/api/health", (_req, res) => {
@@ -181,12 +178,6 @@ function tnHeaders(token) {
     "Authentication": `bearer ${token}`,
   };
 }
-async function getStoreTokenOrThrow(store_id) {
-  if (!pool) throw new Error("DB no configurada");
-  const r = await pool.query("SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1", [store_id]);
-  if (r.rowCount === 0) throw new Error("No hay token para esa tienda");
-  return r.rows[0].access_token;
-}
 
 // -------------------- TN: categorías --------------------
 app.get("/api/tn/categories", async (req, res) => {
@@ -300,10 +291,22 @@ app.all("/api/tn/scripts/install/direct", async (req, res) => {
   }
 });
 
-// ===== Admin: layout único con vistas (home, campaigns, create) =====
+// ================== Métricas Home ==================
+function monthRange(offset = 0) {
+  const now = new Date();
+  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1));
+  const to   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset + 1, 1));
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+function pctChange(curr, prev) {
+  if (!prev || prev === 0) return curr > 0 ? 100 : 0;
+  return Math.round(((curr - prev) / prev) * 100);
+}
+
+// ===== Admin (layout con vistas: home, campaigns, create, coupons) =====
 app.get("/admin", (req, res) => {
   const store_id = String(req.query.store_id || "").trim();
-  const view = String(req.query.view || "home"); // 'home' | 'campaigns' | 'create'
+  const view = String(req.query.view || "home"); // 'home' | 'campaigns' | 'create' | 'coupons'
   res.setHeader("Content-Type", "text/html; charset=utf-8");
 
   const layout = (title, inner) => `
@@ -331,7 +334,6 @@ app.get("/admin", (req, res) => {
       .muted{color:var(--muted);font-size:14px;margin:0}
       .btn{display:inline-block;padding:10px 14px;border-radius:10px;color:#fff;background:var(--brand);text-decoration:none}
       .kpi{font-size:28px;font-weight:800;margin:6px 0}
-      /* tabla/inputs del form existente */
       label{display:block;font-size:12px;color:#555;margin-top:10px}
       input,select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;margin-top:6px}
       .row{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
@@ -354,7 +356,7 @@ app.get("/admin", (req, res) => {
     </div>
   </body></html>`;
 
-  // -------- HOME (resumen mock como antes) --------
+  // -------- HOME --------
   const home = () => {
     const d = new Date(), meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
     const mesAnio = meses[d.getMonth()].charAt(0).toUpperCase()+meses[d.getMonth()].slice(1)+" "+d.getFullYear();
@@ -412,7 +414,7 @@ app.get("/admin", (req, res) => {
     </div>
   `;
 
-  // -------- CREATE (tu formulario actual) --------
+  // -------- CREATE (form) --------
   const create = () => `
     <h1 style="margin:0 0 8px">Cupones Merci — <span class="muted">Tienda ${store_id||''}</span></h1>
     <p class="muted">Crear y segmentar campañas por categorías.</p>
@@ -484,8 +486,8 @@ app.get("/admin", (req, res) => {
           exclude_sale_items: toBool(fd.get('exclude_sale_items'))
         };
         if (p.apply_scope === 'categories'){
-          p.include_category_ids = selectedIds($('#include_categories'));
-          p.exclude_category_ids = selectedIds($('#exclude_categories'));
+          p.include_category_ids = selectedIds(document.querySelector('#include_categories'));
+          p.exclude_category_ids = selectedIds(document.querySelector('#exclude_categories'));
         }
         return p;
       }
@@ -493,7 +495,7 @@ app.get("/admin", (req, res) => {
       function listCampaigns(sid){ return api('/api/campaigns?store_id='+encodeURIComponent(sid)); }
       function fetchCategories(sid){ return api('/api/tn/categories?store_id='+encodeURIComponent(sid)); }
       function renderList(rows){
-        if(!rows || rows.length===0){ $('#list').innerHTML='<p class="muted">No hay campañas.</p>'; return; }
+        if(!rows || rows.length===0){ document.querySelector('#list').innerHTML='<p class="muted">No hay campañas.</p>'; return; }
         var html='<table style="width:100%;border-collapse:collapse"><thead><tr>'+
           '<th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Nombre</th>'+
           '<th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Código</th>'+
@@ -513,13 +515,13 @@ app.get("/admin", (req, res) => {
             '<td style="padding:8px;border-bottom:1px solid #eee">'+r.valid_from+' → '+r.valid_until+'</td>'+
           '</tr>';
         }).join('') + '</tbody></table>';
-        $('#list').innerHTML = html;
+        document.querySelector('#list').innerHTML = html;
       }
       function refresh(){
         var sid = document.querySelector('input[name=store_id]').value.trim();
-        if(!sid){ $('#list').innerHTML='<p class="muted">Ingresá Store ID arriba.</p>'; return; }
-        $('#list').textContent='Cargando…';
-        listCampaigns(sid).then(renderList).catch(()=> $('#list').innerHTML='<p class="muted">Error cargando campañas.</p>');
+        if(!sid){ document.querySelector('#list').innerHTML='<p class="muted">Ingresá Store ID arriba.</p>'; return; }
+        document.querySelector('#list').textContent='Cargando…';
+        listCampaigns(sid).then(renderList).catch(()=> document.querySelector('#list').innerHTML='<p class="muted">Error cargando campañas.</p>');
       }
       function maybeLoadCats(){
         var scope = document.querySelector('#apply_scope').value;
@@ -527,119 +529,118 @@ app.get("/admin", (req, res) => {
         if(scope!=='categories'){ block.style.display='none'; return; }
         block.style.display='block';
         var sid = document.querySelector('input[name=store_id]').value.trim();
-        if(!sid){ $('#msg').textContent='Ingresá Store ID para cargar categorías'; return; }
-        $('#msg').textContent='Cargando categorías…';
+        if(!sid){ document.querySelector('#msg').textContent='Ingresá Store ID para cargar categorías'; return; }
+        document.querySelector('#msg').textContent='Cargando categorías…';
         fetchCategories(sid).then(function(cats){
           var inc = document.querySelector('#include_categories');
           var exc = document.querySelector('#exclude_categories');
           inc.innerHTML = cats.map(c=> '<option value="'+c.id+'">'+c.name+'</option>').join('');
           exc.innerHTML = cats.map(c=> '<option value="'+c.id+'">'+c.name+'</option>').join('');
-          $('#msg').textContent='';
-        }).catch(()=> $('#msg').textContent='No se pudieron cargar categorías');
+          document.querySelector('#msg').textContent='';
+        }).catch(()=> document.querySelector('#msg').textContent='No se pudieron cargar categorías');
       }
       document.querySelector('#apply_scope').addEventListener('change', maybeLoadCats);
       document.querySelector('#f').addEventListener('submit', function(ev){
-        ev.preventDefault(); $('#msg').textContent='Creando…';
+        ev.preventDefault(); document.querySelector('#msg').textContent='Creando…';
         var payload = formToPayload(ev.target);
         api('/api/campaigns', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
-          .then(function(){ $('#msg').textContent='Campaña creada ✅'; refresh(); })
-          .catch(function(e){ $('#msg').textContent='Error: '+(e.detail||e.message||'No se pudo crear'); });
+          .then(function(){ document.querySelector('#msg').textContent='Campaña creada ✅'; refresh(); })
+          .catch(function(e){ document.querySelector('#msg').textContent='Error: '+(e.detail||e.message||'No se pudo crear'); });
       });
       window.addEventListener('load', refresh);
     </script>
   `;
 
-  const body =
-  view === "campaigns" ? campaigns()
-: view === "create"    ? create()
-: view === "coupons"   ? coupons()
-:                        home();
+  // -------- COUPONS (lista vigentes + botón crear) --------
+  const coupons = (sid) => `
+    <div class="head">
+      <h1 style="margin:0">Cupones</h1>
+      <div style="display:flex;gap:8px">
+        <a class="btn" href="/admin/?store_id=${sid}&view=create">➕ Crear cupón</a>
+      </div>
+    </div>
 
+    <div class="card">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+        <input id="q" placeholder="Buscar por código"
+               style="flex:1;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px">
+        <button id="sort" class="btn" style="background:#e5e7eb;color:#111">A–Z</button>
+      </div>
+
+      <div id="count" class="muted" style="margin:6px 0">Cargando…</div>
+
+      <div style="overflow:auto">
+        <table style="width:100%;border-collapse:collapse" id="tbl">
+          <thead>
+            <tr>
+              <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Código</th>
+              <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Descuento</th>
+              <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Usos</th>
+              <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Vigencia</th>
+              <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Estado</th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr><td colspan="5" style="padding:12px" class="muted">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const SID = ${JSON.stringify(sid || "")};
+      const $ = (s, el)=> (el||document).querySelector(s);
+      let data = [], asc = true;
+
+      function fmtDesc(r){
+        if ((r.discount_type||'percent') === 'percent') return (r.discount_value||0) + ' %';
+        return '$ ' + Number(r.discount_value||0);
+      }
+      function fmtDate(d){ return d ? String(d) : '—'; }
+
+      function render(list){
+        const q = ($('#q').value||'').trim().toUpperCase();
+        let rows = list.filter(r => (r.code||'').toUpperCase().includes(q));
+        document.querySelector('#count').textContent = rows.length + ' cupón(es) vigentes';
+        if (asc) rows.sort((a,b)=> a.code.localeCompare(b.code)); else rows.sort((a,b)=> b.code.localeCompare(a.code));
+
+        if (rows.length === 0){
+          document.querySelector('#rows').innerHTML = '<tr><td colspan="5" style="padding:12px" class="muted">Sin resultados</td></tr>';
+          return;
+        }
+        document.querySelector('#rows').innerHTML = rows.map(r => (
+          '<tr>' +
+            '<td style="padding:8px;border-bottom:1px solid #eee"><code>'+r.code+'</code></td>' +
+            '<td style="padding:8px;border-bottom:1px solid #eee">'+fmtDesc(r)+'</td>' +
+            '<td style="padding:8px;border-bottom:1px solid #eee">'+(r.uses||0)+'</td>' +
+            '<td style="padding:8px;border-bottom:1px solid #eee">'+fmtDate(r.valid_from)+' → '+fmtDate(r.valid_until)+'</td>' +
+            '<td style="padding:8px;border-bottom:1px solid #eee"><span style="background:#dcfce7;color:#166534;padding:4px 8px;border-radius:999px;font-size:12px">Activado</span></td>' +
+          '</tr>'
+        )).join('');
+      }
+
+      function load(){
+        fetch('/api/campaigns/active?store_id='+encodeURIComponent(SID))
+          .then(r=>r.json())
+          .then(r=>{ data = Array.isArray(r) ? r : []; render(data); })
+          .catch(()=>{ document.querySelector('#rows').innerHTML = '<tr><td colspan="5" style="padding:12px" class="muted">Error cargando</td></tr>'; });
+      }
+
+      document.querySelector('#q').addEventListener('input', ()=> render(data));
+      document.querySelector('#sort').addEventListener('click', ()=> { asc = !asc; render(data); });
+
+      window.addEventListener('load', load);
+    </script>
+  `;
+
+  const body =
+    view === "campaigns" ? campaigns()
+  : view === "create"    ? create()
+  : view === "coupons"   ? coupons(store_id)
+  :                        home();
 
   res.end(layout("Panel de administración", body));
 });
-// -------- COUPONS (lista de cupones vigentes + botón crear) --------
-const coupons = () => `
-  <div class="head">
-    <h1 style="margin:0">Cupones</h1>
-    <div style="display:flex;gap:8px">
-      <a class="btn" href="/admin/?store_id=${store_id}&view=create">➕ Crear cupón</a>
-    </div>
-  </div>
-
-  <div class="card">
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
-      <input id="q" placeholder="Buscar por código" 
-             style="flex:1;padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px">
-      <button id="sort" class="btn" style="background:#e5e7eb;color:#111">A–Z</button>
-    </div>
-
-    <div id="count" class="muted" style="margin:6px 0">Cargando…</div>
-
-    <div style="overflow:auto">
-      <table style="width:100%;border-collapse:collapse" id="tbl">
-        <thead>
-          <tr>
-            <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Código</th>
-            <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Descuento</th>
-            <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Usos</th>
-            <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Vigencia</th>
-            <th style="text-align:left;border-bottom:1px solid #eee;padding:8px">Estado</th>
-          </tr>
-        </thead>
-        <tbody id="rows">
-          <tr><td colspan="5" style="padding:12px" class="muted">Cargando…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <script>
-    const SID = ${JSON.stringify(store_id || "")};
-    const $ = (s, el)=> (el||document).querySelector(s);
-    let data = [], asc = true;
-
-    function fmtDesc(r){
-      if ((r.discount_type||'percent') === 'percent') return (r.discount_value||0) + ' %';
-      return '$ ' + Number(r.discount_value||0);
-    }
-    function fmtDate(d){ return d ? String(d) : '—'; }
-
-    function render(list){
-      const q = ($('#q').value||'').trim().toUpperCase();
-      let rows = list.filter(r => r.code.toUpperCase().includes(q));
-      $('#count').textContent = rows.length + ' cupón(es) vigentes';
-      if (asc) rows.sort((a,b)=> a.code.localeCompare(b.code)); else rows.sort((a,b)=> b.code.localeCompare(a.code));
-
-      if (rows.length === 0){
-        $('#rows').innerHTML = '<tr><td colspan="5" style="padding:12px" class="muted">Sin resultados</td></tr>';
-        return;
-      }
-      $('#rows').innerHTML = rows.map(r => (
-        '<tr>' +
-          '<td style="padding:8px;border-bottom:1px solid #eee"><code>'+r.code+'</code></td>' +
-          '<td style="padding:8px;border-bottom:1px solid #eee">'+fmtDesc(r)+'</td>' +
-          '<td style="padding:8px;border-bottom:1px solid #eee">'+(r.uses||0)+'</td>' +
-          '<td style="padding:8px;border-bottom:1px solid #eee">'+fmtDate(r.valid_from)+' → '+fmtDate(r.valid_until)+'</td>' +
-          '<td style="padding:8px;border-bottom:1px solid #eee"><span style="background:#dcfce7;color:#166534;padding:4px 8px;border-radius:999px;font-size:12px">Activado</span></td>' +
-        '</tr>'
-      )).join('');
-    }
-
-    function load(){
-      fetch('/api/campaigns/active?store_id='+encodeURIComponent(SID))
-        .then(r=>r.json())
-        .then(r=>{ data = Array.isArray(r) ? r : []; render(data); })
-        .catch(()=>{ $('#rows').innerHTML = '<tr><td colspan="5" style="padding:12px" class="muted">Error cargando</td></tr>'; });
-    }
-
-    $('#q').addEventListener('input', ()=> render(data));
-    $('#sort').addEventListener('click', ()=> { asc = !asc; render(data); });
-
-    window.addEventListener('load', load);
-  </script>
-`;
-
 
 // -------------------- API campañas --------------------
 app.get("/api/campaigns", async (req, res) => {
@@ -700,47 +701,45 @@ app.post("/api/campaigns", async (req, res) => {
     const status = "active";
 
     const sql = `
-  INSERT INTO campaigns (
-    id, store_id, name, code,
-    type, value, min_cart, monthly_cap,
-    start_date, end_date,
-    exclude_on_sale, status,
-    created_at, updated_at,
-    discount_type, discount_value,
-    valid_from, valid_until, apply_scope,
-    min_cart_amount, max_discount_amount, monthly_cap_amount,
-    exclude_sale_items,
-    include_category_ids, exclude_category_ids,
-    include_product_ids, exclude_product_ids
-  ) VALUES (
-    gen_random_uuid(),
-    $1, $2, $3,
-    $4, $5, $6, $7,
-    NULL, NULL,
-    $8, $9,
-    now(), now(),
-    $10, $11,
-    $12, $13, $14,
-    $15, $16, $17,
-    $18,
-    $19::jsonb, $20::jsonb,
-    $21::jsonb, $22::jsonb
-  )
-  RETURNING id, store_id, code, name, created_at
-`;
-
-const params = [
-  store_id, name, code,
-  type, value, min_cart, monthly_cap,
-  exclude_on_sale, status,            // 👈 ahora status entra por $9
-  discount_type, discount_value_num,  // $10, $11
-  valid_from, valid_until, apply_scope, // $12, $13, $14
-  min_cart_amount, max_discount_amount, monthly_cap_amount, // $15, $16, $17
-  exclude_sale_items,                  // $18
-  include_category_ids, exclude_category_ids, // $19, $20
-  include_product_ids, exclude_product_ids    // $21, $22
-];
-
+      INSERT INTO campaigns (
+        id, store_id, name, code,
+        type, value, min_cart, monthly_cap,
+        start_date, end_date,
+        exclude_on_sale, status,
+        created_at, updated_at,
+        discount_type, discount_value,
+        valid_from, valid_until, apply_scope,
+        min_cart_amount, max_discount_amount, monthly_cap_amount,
+        exclude_sale_items,
+        include_category_ids, exclude_category_ids,
+        include_product_ids, exclude_product_ids
+      ) VALUES (
+        gen_random_uuid(),
+        $1, $2, $3,
+        $4, $5, $6, $7,
+        NULL, NULL,
+        $8, $9,
+        now(), now(),
+        $10, $11,
+        $12, $13, $14,
+        $15, $16, $17,
+        $18,
+        $19::jsonb, $20::jsonb,
+        $21::jsonb, $22::jsonb
+      )
+      RETURNING id, store_id, code, name, created_at
+    `;
+    const params = [
+      store_id, name, code,
+      type, value, min_cart, monthly_cap,
+      exclude_on_sale, status,            // $8, $9
+      discount_type, discount_value_num,  // $10, $11
+      valid_from, valid_until, apply_scope, // $12, $13, $14
+      min_cart_amount, max_discount_amount, monthly_cap_amount, // $15, $16, $17
+      exclude_sale_items,                  // $18
+      include_category_ids, exclude_category_ids, // $19, $20
+      include_product_ids, exclude_product_ids    // $21, $22
+    ];
     const r = await pool.query(sql, params);
     return res.json({ ok: true, campaign: r.rows[0] });
   } catch (e) {
@@ -749,104 +748,7 @@ const params = [
   }
 });
 
-// Export CSV (demo) — últimos 30 días
-app.get("/api/metrics/export.csv", (_req, res) => {
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", "attachment; filename=\"merci-metrics.csv\"");
-  const today = new Date();
-  const rows = ["fecha,usos,descuento_total"];
-  for (let i=29; i>=0; i--){
-    const d = new Date(today); d.setDate(today.getDate()-i);
-    const yyyy = d.getFullYear(), mm = String(d.getMonth()+1).padStart(2,"0"), dd = String(d.getDate()).padStart(2,"0");
-    const usos = 8 + Math.round(10*Math.abs(Math.sin((29-i)/3)));
-    const total = usos * 1500; // mock $
-    rows.push(`${yyyy}-${mm}-${dd},${usos},${total}`);
-  }
-  res.send(rows.join("\n"));
-});
-
-// -------------------- API: campañas vigentes --------------------
-app.get("/api/campaigns/active", async (req, res) => {
-  try {
-    const store_id = String(req.query.store_id || "").trim();
-    if (!store_id) return res.json([]);
-
-    const { rows } = await pool.query(
-      `
-      SELECT c.id, c.code, c.name, c.discount_type, c.discount_value,
-             c.apply_scope, c.valid_from, c.valid_until, c.status,
-             COALESCE(u.uses,0)::int AS uses
-        FROM campaigns c
-        LEFT JOIN LATERAL (
-          SELECT COUNT(*) AS uses
-            FROM coupon_ledger cl
-           WHERE cl.store_id = c.store_id
-             AND UPPER(cl.code) = UPPER(c.code)
-        ) u ON true
-       WHERE c.store_id = $1
-         AND c.status = 'active'
-         AND ( (c.valid_from IS NULL OR c.valid_from <= CURRENT_DATE)
-           AND (c.valid_until IS NULL OR c.valid_until >= CURRENT_DATE) )
-       ORDER BY c.created_at DESC
-      `,
-      [store_id]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error("GET /api/campaigns/active error:", err);
-    res.status(500).json({ message: "Error al obtener campañas vigentes" });
-  }
-});
-
-// -------------------- API: cupones vigentes --------------------
-app.get("/api/campaigns/active", async (req, res) => {
-  try {
-    const store_id = String(req.query.store_id || "").trim();
-    if (!store_id) return res.json([]);
-
-    const sqlWithLedger = `
-      SELECT c.id, c.code, c.name, c.discount_type, c.discount_value,
-             c.apply_scope, c.valid_from, c.valid_until, c.status,
-             COALESCE(u.uses,0)::int AS uses
-        FROM campaigns c
-   LEFT JOIN (
-          SELECT store_id, UPPER(code) AS code, COUNT(*)::int AS uses
-            FROM coupon_ledger
-           GROUP BY 1,2
-        ) u
-          ON u.store_id = c.store_id AND UPPER(c.code) = u.code
-       WHERE c.store_id = $1
-         AND c.status = 'active'
-         AND (c.valid_from IS NULL OR c.valid_from <= CURRENT_DATE)
-         AND (c.valid_until IS NULL OR c.valid_until >= CURRENT_DATE)
-       ORDER BY c.created_at DESC`;
-    try {
-      const { rows } = await pool.query(sqlWithLedger, [store_id]);
-      return res.json(rows);
-    } catch (e) {
-      // Si aún no existe coupon_ledger → devolvemos sin "uses"
-      if (/relation .*coupon_ledger.* does not exist/i.test(String(e.message||e))) {
-        const { rows } = await pool.query(`
-          SELECT id, code, name, discount_type, discount_value,
-                 apply_scope, valid_from, valid_until, status,
-                 0::int AS uses
-            FROM campaigns
-           WHERE store_id = $1
-             AND status='active'
-             AND (valid_from IS NULL OR valid_from <= CURRENT_DATE)
-             AND (valid_until IS NULL OR valid_until >= CURRENT_DATE)
-           ORDER BY created_at DESC`, [store_id]);
-        return res.json(rows);
-      }
-      throw e;
-    }
-  } catch (err) {
-    console.error("GET /api/campaigns/active error:", err);
-    res.status(500).json({ message: "Error al obtener cupones activos" });
-  }
-});
-
-// -------------------- API: cupones vigentes --------------------
+// -------------------- API: campañas vigentes (única) --------------------
 app.get("/api/campaigns/active", async (req, res) => {
   const store_id = String(req.query.store_id || "").trim();
   if (!store_id) return res.json([]);
@@ -897,7 +799,6 @@ app.get("/api/campaigns/active", async (req, res) => {
     const { rows } = await pool.query(sqlWithUses, [store_id, today]);
     return res.json(rows);
   } catch (e) {
-    // si aún no existe coupon_ledger, caemos sin "uses"
     if (/relation .*coupon_ledger.* does not exist/i.test(String(e.message||e))) {
       const { rows } = await pool.query(sqlNoUses, [store_id, today]);
       return res.json(rows);
@@ -907,21 +808,7 @@ app.get("/api/campaigns/active", async (req, res) => {
   }
 });
 
-
-// ================== Métricas Home ==================
-function monthRange(offset = 0) {
-  const now = new Date();
-  const from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1));
-  const to   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset + 1, 1));
-  return { from: from.toISOString(), to: to.toISOString() };
-}
-
-function pctChange(curr, prev) {
-  if (!prev || prev === 0) return curr > 0 ? 100 : 0;
-  return Math.round(((curr - prev) / prev) * 100);
-}
-
-// GET /api/metrics/summary?store_id=...
+// ================== /Métricas Home ==================
 app.get("/api/metrics/summary", async (req, res) => {
   try {
     const store_id = String(req.query.store_id || "").trim();
@@ -931,7 +818,6 @@ app.get("/api/metrics/summary", async (req, res) => {
     const { from: mFrom, to: mTo } = monthRange(0);
     const { from: pFrom, to: pTo } = monthRange(-1);
 
-    // Totales mes actual
     const [{ rows: r1 }, { rows: r2 }, { rows: r3 }] = await Promise.all([
       pool.query(
         `SELECT COALESCE(SUM(applied_amount),0)::numeric AS total
@@ -958,7 +844,6 @@ app.get("/api/metrics/summary", async (req, res) => {
     const month_orders    = Number(r2[0]?.orders || 0);
     const month_customers = Number(r3[0]?.customers || 0);
 
-    // Totales mes anterior (para %)
     const [{ rows: pr1 }, { rows: pr2 }, { rows: pr3 }] = await Promise.all([
       pool.query(
         `SELECT COALESCE(SUM(applied_amount),0)::numeric AS total
@@ -985,7 +870,6 @@ app.get("/api/metrics/summary", async (req, res) => {
     const prev_orders    = Number(pr2[0]?.orders || 0);
     const prev_customers = Number(pr3[0]?.customers || 0);
 
-    // Top campaña del mes (por $ aplicado)
     const { rows: topRows } = await pool.query(
       `
       WITH m AS (
@@ -1021,7 +905,6 @@ app.get("/api/metrics/summary", async (req, res) => {
       }
     });
   } catch (e) {
-    // si aún no existe coupon_ledger, devolvemos ceros
     const msg = String(e.message || e);
     if (/relation .*coupon_ledger.* does not exist/i.test(msg)) {
       return res.json({
@@ -1040,7 +923,6 @@ app.get("/api/metrics/summary", async (req, res) => {
   }
 });
 
-// GET /api/metrics/series/daily?store_id=...
 app.get("/api/metrics/series/daily", async (req, res) => {
   try {
     const store_id = String(req.query.store_id || "").trim();
@@ -1076,8 +958,6 @@ app.get("/api/metrics/series/daily", async (req, res) => {
     res.status(500).json({ ok:false, error: msg });
   }
 });
-// ================ /Métricas Home ==================
-
 
 // -------------------- Discounts Callback (motor) --------------------
 app.post("/discounts/callback", async (req, res) => {
@@ -1209,7 +1089,6 @@ app.post("/discounts/callback", async (req, res) => {
     const used = Number(sumRows[0]?.used || 0);
     const cap = (c.cap_total_amount != null ? Number(c.cap_total_amount)
            : (c.monthly_cap_amount != null ? Number(c.monthly_cap_amount) : null));
-
 
     let cappedAmount = amount;
     if (cap != null && cap >= 0) {
