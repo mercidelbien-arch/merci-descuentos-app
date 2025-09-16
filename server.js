@@ -155,8 +155,9 @@ app.get("/api/db/migrate", async (_req, res) => {
 });
 
 // Raíz simple
-app.get("/", (_req, res) => res.send("OK"));
-
+app.get("/", (_req, res) => {
+  res.redirect("/admin/?store_id=3739596");
+});
 // -------------------- Install/OAuth (URL correcta con app_id en el path) --------------------
 app.get("/install", (req, res) => {
   const appId = process.env.TN_CLIENT_ID;
