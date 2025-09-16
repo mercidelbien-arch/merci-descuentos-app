@@ -617,47 +617,47 @@ app.post("/api/campaigns", async (req, res) => {
     const status = "active";
 
     const sql = `
-      INSERT INTO campaigns (
-        id, store_id, name, code,
-        type, value, min_cart, monthly_cap,
-        start_date, end_date,
-        exclude_on_sale, status,
-        created_at, updated_at,
-        discount_type, discount_value,
-        max_uses_per_coupon, max_uses_per_customer,
-        valid_from, valid_until, apply_scope,
-        min_cart_amount, max_discount_amount, monthly_cap_amount,
-        exclude_sale_items,
-        include_category_ids, exclude_category_ids,
-        include_product_ids, exclude_product_ids
-      ) VALUES (
-        gen_random_uuid(),
-        $1, $2, $3,
-        $4, $5, $6, $7,
-        NULL, NULL,
-        $8, 'active',
-        now(), now(),
-        $9, $10,
-        NULL, NULL,
-        $11, $12, $13,
-        $14, $15, $16,
-        $17,
-        $18::jsonb, $19::jsonb,
-        $20::jsonb, $21::jsonb
-      )
-      RETURNING id, store_id, code, name, created_at
-    `;
-    const params = [
-      store_id, name, code,
-      type, value, min_cart, monthly_cap,
-      exclude_on_sale,
-      discount_type, discount_value_num,
-      valid_from, valid_until, apply_scope,
-      min_cart_amount, max_discount_amount, monthly_cap_amount,
-      exclude_sale_items,
-      include_category_ids, exclude_category_ids,
-      include_product_ids, exclude_product_ids
-    ];
+  INSERT INTO campaigns (
+    id, store_id, name, code,
+    type, value, min_cart, monthly_cap,
+    start_date, end_date,
+    exclude_on_sale, status,
+    created_at, updated_at,
+    discount_type, discount_value,
+    valid_from, valid_until, apply_scope,
+    min_cart_amount, max_discount_amount, monthly_cap_amount,
+    exclude_sale_items,
+    include_category_ids, exclude_category_ids,
+    include_product_ids, exclude_product_ids
+  ) VALUES (
+    gen_random_uuid(),
+    $1, $2, $3,
+    $4, $5, $6, $7,
+    NULL, NULL,
+    $8, $9,
+    now(), now(),
+    $10, $11,
+    $12, $13, $14,
+    $15, $16, $17,
+    $18,
+    $19::jsonb, $20::jsonb,
+    $21::jsonb, $22::jsonb
+  )
+  RETURNING id, store_id, code, name, created_at
+`;
+
+const params = [
+  store_id, name, code,
+  type, value, min_cart, monthly_cap,
+  exclude_on_sale, status,            // 👈 ahora status entra por $9
+  discount_type, discount_value_num,  // $10, $11
+  valid_from, valid_until, apply_scope, // $12, $13, $14
+  min_cart_amount, max_discount_amount, monthly_cap_amount, // $15, $16, $17
+  exclude_sale_items,                  // $18
+  include_category_ids, exclude_category_ids, // $19, $20
+  include_product_ids, exclude_product_ids    // $21, $22
+];
+
     const r = await pool.query(sql, params);
     return res.json({ ok: true, campaign: r.rows[0] });
   } catch (e) {
@@ -981,7 +981,9 @@ app.post("/discounts/callback", async (req, res) => {
       [store_id, code]
     );
     const used = Number(sumRows[0]?.used || 0);
-    const cap  = c.cap_total_amount != null ? Number(c.cap_total_amount) : null;
+    const cap = (c.cap_total_amount != null ? Number(c.cap_total_amount)
+           : (c.monthly_cap_amount != null ? Number(c.monthly_cap_amount) : null));
+
 
     let cappedAmount = amount;
     if (cap != null && cap >= 0) {
