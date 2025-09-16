@@ -846,6 +846,68 @@ app.get("/api/campaigns/active", async (req, res) => {
   }
 });
 
+// -------------------- API: cupones vigentes --------------------
+app.get("/api/campaigns/active", async (req, res) => {
+  const store_id = String(req.query.store_id || "").trim();
+  if (!store_id) return res.json([]);
+  const today = new Date().toISOString().slice(0,10);
+
+  const sqlWithUses = `
+    WITH c AS (
+      SELECT id, store_id, code, name, status,
+             discount_type, discount_value,
+             valid_from, valid_until,
+             apply_scope, min_cart_amount,
+             max_discount_amount, monthly_cap_amount,
+             exclude_sale_items, created_at, updated_at
+        FROM campaigns
+       WHERE store_id = $1
+         AND status = 'active'
+         AND ($2::date >= COALESCE(valid_from, $2::date))
+         AND ($2::date <= COALESCE(valid_until, $2::date))
+    ),
+    u AS (
+      SELECT UPPER(code) AS code, COUNT(*)::int AS uses
+        FROM coupon_ledger
+       WHERE store_id = $1
+       GROUP BY 1
+    )
+    SELECT c.*, COALESCE(u.uses,0) AS uses
+      FROM c LEFT JOIN u ON UPPER(c.code)=u.code
+     ORDER BY c.updated_at DESC NULLS LAST, c.created_at DESC;
+  `;
+
+  const sqlNoUses = `
+    SELECT id, store_id, code, name, status,
+           discount_type, discount_value,
+           valid_from, valid_until,
+           apply_scope, min_cart_amount,
+           max_discount_amount, monthly_cap_amount,
+           exclude_sale_items, created_at, updated_at,
+           0::int AS uses
+      FROM campaigns
+     WHERE store_id = $1
+       AND status = 'active'
+       AND ($2::date >= COALESCE(valid_from, $2::date))
+       AND ($2::date <= COALESCE(valid_until, $2::date))
+     ORDER BY updated_at DESC NULLS LAST, created_at DESC;
+  `;
+
+  try {
+    const { rows } = await pool.query(sqlWithUses, [store_id, today]);
+    return res.json(rows);
+  } catch (e) {
+    // si aún no existe coupon_ledger, caemos sin "uses"
+    if (/relation .*coupon_ledger.* does not exist/i.test(String(e.message||e))) {
+      const { rows } = await pool.query(sqlNoUses, [store_id, today]);
+      return res.json(rows);
+    }
+    console.error("GET /api/campaigns/active error:", e);
+    return res.status(500).json({ message: "Error listando cupones activos" });
+  }
+});
+
+
 // ================== Métricas Home ==================
 function monthRange(offset = 0) {
   const now = new Date();
