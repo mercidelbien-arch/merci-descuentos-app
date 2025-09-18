@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
+const templatesRouter = require('./api/routes/templates');
 
 import express from "express";
 import cookieSession from "cookie-session";
@@ -25,6 +26,7 @@ if (DATABASE_URL) {
 const app = express();
 app.set("trust proxy", 1);
 app.use(express.json());
+app.use('/api/templates', templatesRouter);
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 
