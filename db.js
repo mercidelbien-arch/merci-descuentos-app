@@ -1,9 +1,10 @@
+// db.js (ESM)
 import pg from 'pg';
 const { Pool } = pg;
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  console.error('Falta DATABASE_URL en .env');
+  console.error('Falta DATABASE_URL');
   process.exit(1);
 }
 
