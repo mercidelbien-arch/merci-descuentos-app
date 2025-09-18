@@ -1,39 +1,24 @@
-// server.js — baseline mínimo (ESM)
 import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cors from 'cors';
-
 import templatesRouter from './api/routes/templates.js';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Salud
 app.get('/api/health', (_req, res) => res.json({ ok: true, ts: Date.now() }));
-
-// Rutas
 app.use('/api/templates', templatesRouter);
-
-// Admin estático (si lo usás)
 app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
 
-// Listen
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Server on :' + PORT));
 
-
-// -------------------- DB (Neon) --------------------
-const { DATABASE_URL } = process.env;
-let pool = null;
-if (DATABASE_URL) {
-  pool = new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
-}
 
 // -------------------- App --------------------
 const app = express();
