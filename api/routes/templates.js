@@ -1,6 +1,6 @@
 // api/routes/templates.js  (ESM)
 import express from 'express';
-import * as db from '../db.js';
+import * as db from '../../db.js';
 
 const router = express.Router();
 
