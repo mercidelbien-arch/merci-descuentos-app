@@ -1,6 +1,6 @@
-// api/routes/templates.js  (ESM)
+// api/routes/templates.js (ESM)
 import express from 'express';
-import * as db from '../../db.js';
+import { query } from '../../db.js';
 
 const router = express.Router();
 
@@ -16,30 +16,22 @@ router.get('/', async (req, res) => {
 
     const where = [];
     const params = [];
-
-    if (!showAll) {
-      params.push(true);
-      where.push(`active = $${params.length}`);
-    }
-    if (q) {
-      params.push(`%${q}%`);
-      where.push(`label ILIKE $${params.length}`);
-    }
+    if (!showAll) { params.push(true); where.push(`active = $${params.length}`); }
+    if (q)       { params.push(`%${q}%`); where.push(`label ILIKE $${params.length}`); }
 
     const sql = `
-      SELECT
-        id, key, label, type, value, max_discount, min_subtotal,
-        include_category_ids, exclude_category_ids, notes, active,
-        created_at, updated_at
-      FROM campaign_templates
-      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY id DESC
+      SELECT id, key, label, type, value, max_discount, min_subtotal,
+             include_category_ids, exclude_category_ids, notes, active,
+             created_at, updated_at
+        FROM campaign_templates
+       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+       ORDER BY id DESC
     `;
 
-    const { rows } = await db.query(sql, params);
+    const { rows } = await query(sql, params);
     res.json({ ok: true, count: rows.length, data: rows });
-  } catch (err) {
-    console.error('GET /api/templates error', err);
+  } catch (e) {
+    console.error('GET /api/templates error', e);
     res.status(500).json({ ok: false, error: 'internal_error' });
   }
 });
