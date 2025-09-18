@@ -1,10 +1,17 @@
-// db.js — conexión a Neon/Postgres
-import pkg from "pg";
-const { Pool } = pkg;
+import pg from 'pg';
+const { Pool } = pg;
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // Render + Neon necesitan SSL
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  console.error('Falta DATABASE_URL en .env');
+  process.exit(1);
+}
+
+export const pool = new Pool({
+  connectionString,
+  ssl: { rejectUnauthorized: false },
 });
 
-export default pool;
+export function query(text, params) {
+  return pool.query(text, params);
+}
