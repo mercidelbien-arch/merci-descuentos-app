@@ -1,34 +1,32 @@
-// server.js — App Merci Descuentos (TN OAuth + Neon + Campañas)
-import express from "express";
-import path from "path";
-import { fileURLToPath } from "url";
-import cookieSession from "cookie-session";
-import axios from "axios";
-import crypto from "crypto";
-import "dotenv/config";
-import { Pool } from "pg";
-import cors from "cors";
+// server.js — baseline mínimo (ESM)
+import 'dotenv/config';
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import cors from 'cors';
 
-import templatesRouter from "./api/routes/templates.js";
+import templatesRouter from './api/routes/templates.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-const PROMO_ID = process.env.TN_PROMO_ID || "1c508de3-84a0-4414-9c75-c2aee4814fcd";
+const app = express();
+app.use(cors());
+app.use(express.json());
 
+// Salud
+app.get('/api/health', (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
-// -------------------- Admin estático --------------------
-app.use("/admin", express.static(path.join(__dirname, "public", "admin")));
+// Rutas
+app.use('/api/templates', templatesRouter);
 
-// -------------------- Inicio --------------------
+// Admin estático (si lo usás)
+app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
+
+// Listen
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server on :${PORT}`);
-});
+app.listen(PORT, () => console.log('Server on :' + PORT));
 
-
-
-const PROMO_ID = process.env.TN_PROMO_ID || "1c508de3-84a0-4414-9c75-c2aee4814fcd";
 
 // -------------------- DB (Neon) --------------------
 const { DATABASE_URL } = process.env;
