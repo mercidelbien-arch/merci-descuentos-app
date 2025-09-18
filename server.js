@@ -1,17 +1,58 @@
 // server.js — App Merci Descuentos (TN OAuth + Neon + Campañas)
-import path from 'path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
-const templatesRouter = require('./api/routes/templates');
-
 import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
 import cookieSession from "cookie-session";
 import axios from "axios";
 import crypto from "crypto";
 import "dotenv/config";
 import { Pool } from "pg";
 import cors from "cors";
+
+import templatesRouter from "./api/routes/templates.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+
+const PROMO_ID = process.env.TN_PROMO_ID || "1c508de3-84a0-4414-9c75-c2aee4814fcd";
+
+// -------------------- DB (Neon) --------------------
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
+// -------------------- App --------------------
+const app = express();
+app.use(express.json());
+app.use(cors());
+
+app.use(
+  cookieSession({
+    name: "session",
+    keys: [process.env.SESSION_SECRET || "supersecret"],
+    maxAge: 24 * 60 * 60 * 1000,
+  })
+);
+
+// -------------------- Rutas API --------------------
+app.use("/api/templates", templatesRouter);
+
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
+// -------------------- Admin estático --------------------
+app.use("/admin", express.static(path.join(__dirname, "public", "admin")));
+
+// -------------------- Inicio --------------------
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server on :${PORT}`);
+});
+
+export { pool };
+
 
 const PROMO_ID = process.env.TN_PROMO_ID || "1c508de3-84a0-4414-9c75-c2aee4814fcd";
 
