@@ -1,4 +1,4 @@
-// api/routes/templates.js (ESM)
+// api/routes/templates.js (ESM, usa db de la raíz)
 import express from 'express';
 import { query } from '../../db.js';
 
