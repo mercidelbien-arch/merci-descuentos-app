@@ -786,15 +786,12 @@ app.post('/discounts/callback', async (req, res) => {
 app.post('/webhooks/orders/create', (_req, res) => res.sendStatus(200));
 
 // ===== Admin (React build) =====
-// OJO: si tu build queda en 'admin/build', cambia 'dist' por 'build'
-const adminDist = path.join(__dirname, 'admin', 'dist');
+app.use('/admin', express.static(path.join(__dirname, 'admin/dist'), { maxAge: '1h' }));
 
-app.use('/admin', express.static(adminDist));
-app.get('/admin/*', (_req, res) => {
-  res.sendFile(path.join(adminDist, 'index.html'));
+// fallback para React Router
+app.get('/admin/*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin/dist/index.html'));
 });
-
-
 
 
 // -------------------- Start --------------------
