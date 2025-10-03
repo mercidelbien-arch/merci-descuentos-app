@@ -786,19 +786,14 @@ app.post('/discounts/callback', async (req, res) => {
 app.post('/webhooks/orders/create', (_req, res) => res.sendStatus(200));
 
 // ===== Admin (React build) =====
-import { fileURLToPath } from 'url';
-import path from 'path';
+// OJO: si tu build queda en 'admin/build', cambia 'dist' por 'build'
+const adminDist = path.join(__dirname, 'admin', 'dist');
 
-const __filename_admin = fileURLToPath(import.meta.url);
-const __dirname_admin  = path.dirname(__filename_admin);
-
-// OJO: si tu build está en admin/build, cambiá 'dist' por 'build'
-const ADMIN_DIR = path.join(__dirname_admin, 'admin', 'dist');
-
-app.use('/admin', express.static(ADMIN_DIR));
+app.use('/admin', express.static(adminDist));
 app.get('/admin/*', (_req, res) => {
-  res.sendFile(path.join(ADMIN_DIR, 'index.html'));
+  res.sendFile(path.join(adminDist, 'index.html'));
 });
+
 
 
 
