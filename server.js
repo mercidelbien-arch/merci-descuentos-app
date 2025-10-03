@@ -785,114 +785,21 @@ app.post('/discounts/callback', async (req, res) => {
 
 app.post('/webhooks/orders/create', (_req, res) => res.sendStatus(200));
 
-// ===== Admin (vista dinámica simple) =====
-app.get('/admin', async (req, res) => {
-  const store_id = String(req.query.store_id || '').trim();
-  const view = String(req.query.view || 'home'); // 'home' | 'campaigns'
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+// ===== Admin (React build) =====
+import { fileURLToPath } from 'url';
+import path from 'path';
 
-  const layout = (title, inner) => `
-  <!doctype html>
-  <html lang="es"><head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width,initial-scale=1"/>
-    <title>${title} · Merci</title>
-    <style>
-      :root{--bg:#f7f8fa;--card:#fff;--muted:#64748b;--line:#e5e7eb;--brand:#4338ca}
-      body{margin:0;background:var(--bg);color:#0f172a;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial}
-      .layout{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
-      .aside{background:#fff;border-right:1px solid var(--line);padding:20px}
-      .brand{font-weight:700;margin:0 0 8px}
-      .nav a{display:block;padding:10px 12px;border-radius:10px;color:#0f172a;text-decoration:none;margin:4px 0}
-      .nav a.active{background:#eef2ff;color:var(--brand)}
-      .main{padding:24px}
-      .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
-      .card{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:18px}
-      table{width:100%;border-collapse:collapse}
-      th,td{padding:10px;border-top:1px solid var(--line);text-align:left;font-size:14px}
-      th{background:#f8fafc;color:#475569}
-      .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
-      .badge{padding:3px 8px;border-radius:999px;font-size:12px;background:#eef2ff;color:#4338ca}
-      .btn{display:inline-block;padding:10px 14px;border-radius:10px;color:#fff;background:var(--brand);text-decoration:none}
-      .muted{color:var(--muted);font-size:14px;margin:0}
-    </style>
-  </head><body>
-    <div class="layout">
-      <aside class="aside">
-        <h3 class="brand">Merci Descuentos</h3>
-        <nav class="nav">
-          <a href="/admin/?store_id=${store_id}&view=home" class="${view==='home'?'active':''}">Página principal</a>
-          <a href="/admin/?store_id=${store_id}&view=campaigns" class="${view==='campaigns'?'active':''}">Campañas</a>
-          <a href="/api/health" target="_blank">Salud & Logs</a>
-        </nav>
-      </aside>
-      <main class="main">${inner}</main>
-    </div>
-  </body></html>`;
+const __filename_admin = fileURLToPath(import.meta.url);
+const __dirname_admin  = path.dirname(__filename_admin);
 
-  const home = () => `
-    <div class="head">
-      <div><h1 style="margin:0">Página principal</h1>
-      <p class="muted">Resumen analítico</p></div>
-      <div><a class="btn" href="/api/metrics/summary?store_id=${store_id}" target="_blank">Ver métricas</a></div>
-    </div>
-    <div class="card"><p class="muted">Panel simple</p></div>
-  `;
+// OJO: si tu build está en admin/build, cambiá 'dist' por 'build'
+const ADMIN_DIR = path.join(__dirname_admin, 'admin', 'dist');
 
-  async function campaigns() {
-    if (!store_id) return `<div class="card">Falta <span class="mono">store_id</span> en la URL.</div>`;
-    const { rows } = await pool.query(
-      `SELECT id, code, name, status, discount_type, discount_value,
-              valid_from, valid_until, created_at
-         FROM campaigns
-        WHERE store_id=$1
-        ORDER BY created_at DESC`,
-      [store_id]
-    );
-    const trs = rows.map(c => {
-      const tipo = (c.discount_type === 'percent') ? 'Porcentaje' :
-                   (c.discount_type === 'absolute') ? 'Monto fijo' : (c.discount_type || '-');
-      const valor = (c.discount_type === 'percent')
-        ? `${Number(c.discount_value)}%`
-        : (c.discount_value != null ? `$ ${Number(c.discount_value).toLocaleString('es-AR')}` : '-');
-      const vig = [c.valid_from, c.valid_until].filter(Boolean).join(' → ');
-      return `<tr>
-        <td class="mono">${c.code}</td>
-        <td><a href="#" title="(editar próximamente)">${c.name || '-'}</a></td>
-        <td>${tipo}</td>
-        <td>${valor}</td>
-        <td><span class="badge">${c.status}</span></td>
-        <td>${vig || '-'}</td>
-      </tr>`;
-    }).join('');
-
-    return `
-      <div class="head">
-        <h1 style="margin:0">Campañas</h1>
-        <a class="btn" href="#" onclick="alert('Crear campaña (próximo)');return false;">Crear campaña</a>
-      </div>
-      <div class="card" style="padding:0;overflow:auto">
-        <table>
-          <thead>
-            <tr>
-              <th>Código</th><th>Nombre</th><th>Tipo</th>
-              <th>Valor</th><th>Estado</th><th>Vigencia</th>
-            </tr>
-          </thead>
-          <tbody>${trs || `<tr><td colspan="6" class="muted">No hay campañas.</td></tr>`}</tbody>
-        </table>
-      </div>
-    `;
-  }
-
-  try {
-    const body = (view === 'campaigns') ? await campaigns() : home();
-    res.end(layout('Panel de administración', body));
-  } catch (e) {
-    console.error('ADMIN render error:', e);
-    res.status(500).end(layout('Error', `<div class="card">Error: ${String(e.message || e)}</div>`));
-  }
+app.use('/admin', express.static(ADMIN_DIR));
+app.get('/admin/*', (_req, res) => {
+  res.sendFile(path.join(ADMIN_DIR, 'index.html'));
 });
+
 
 
 // -------------------- Start --------------------
