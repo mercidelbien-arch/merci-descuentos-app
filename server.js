@@ -786,9 +786,9 @@ app.post('/discounts/callback', async (req, res) => {
 app.post('/webhooks/orders/create', (_req, res) => res.sendStatus(200));
 
 // ===== Admin (vista dinámica simple) =====
-app.get('/admin', (req, res) => {
+app.get('/admin', async (req, res) => {
   const store_id = String(req.query.store_id || '').trim();
-  const view = String(req.query.view || 'home'); // 'home' | 'campaigns' | 'create' | 'coupons'
+  const view = String(req.query.view || 'home'); // 'home' | 'campaigns'
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
 
   const layout = (title, inner) => `
@@ -807,19 +807,14 @@ app.get('/admin', (req, res) => {
       .nav a.active{background:#eef2ff;color:var(--brand)}
       .main{padding:24px}
       .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
-      .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
       .card{background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:18px}
-      .tile{cursor:pointer;transition:.15s;text-decoration:none;color:inherit}
-      .tile:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,.08)}
-      .icon{width:40px;height:40px;border-radius:10px;background:#eef2ff;display:flex;align-items:center;justify-content:center;margin-bottom:10px}
-      .title{font-weight:700;margin:0 0 4px}
-      .muted{color:var(--muted);font-size:14px;margin:0}
+      table{width:100%;border-collapse:collapse}
+      th,td{padding:10px;border-top:1px solid var(--line);text-align:left;font-size:14px}
+      th{background:#f8fafc;color:#475569}
+      .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+      .badge{padding:3px 8px;border-radius:999px;font-size:12px;background:#eef2ff;color:#4338ca}
       .btn{display:inline-block;padding:10px 14px;border-radius:10px;color:#fff;background:var(--brand);text-decoration:none}
-      .kpi{font-size:28px;font-weight:800;margin:6px 0}
-      label{display:block;font-size:12px;color:#555;margin-top:10px}
-      input,select{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:8px;margin-top:6px}
-      .row{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-      .row3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+      .muted{color:var(--muted);font-size:14px;margin:0}
     </style>
   </head><body>
     <div class="layout">
@@ -828,9 +823,6 @@ app.get('/admin', (req, res) => {
         <nav class="nav">
           <a href="/admin/?store_id=${store_id}&view=home" class="${view==='home'?'active':''}">Página principal</a>
           <a href="/admin/?store_id=${store_id}&view=campaigns" class="${view==='campaigns'?'active':''}">Campañas</a>
-          <a href="#" onclick="alert('Próximo');return false;">Categorías</a>
-          <a href="#" onclick="alert('Próximo');return false;">Redenciones</a>
-          <a href="#" onclick="alert('Próximo');return false;">Clientes</a>
           <a href="/api/health" target="_blank">Salud & Logs</a>
         </nav>
       </aside>
@@ -838,21 +830,70 @@ app.get('/admin', (req, res) => {
     </div>
   </body></html>`;
 
-  // (para abreviar, dejo solo "home")
   const home = () => `
     <div class="head">
       <div><h1 style="margin:0">Página principal</h1>
-      <div class="muted">Resumen analítico</div></div>
-      <div style="display:flex;gap:10px">
-        <a class="btn" href="/api/metrics/summary?store_id=${store_id}">Ver métricas</a>
-      </div>
+      <p class="muted">Resumen analítico</p></div>
+      <div><a class="btn" href="/api/metrics/summary?store_id=${store_id}" target="_blank">Ver métricas</a></div>
     </div>
-    <div class="card"><div class="muted">Panel simple</div></div>
+    <div class="card"><p class="muted">Panel simple</p></div>
   `;
 
-  const body = home();
-  res.end(layout('Panel de administración', body));
+  async function campaigns() {
+    if (!store_id) return `<div class="card">Falta <span class="mono">store_id</span> en la URL.</div>`;
+    const { rows } = await pool.query(
+      `SELECT id, code, name, status, discount_type, discount_value,
+              valid_from, valid_until, created_at
+         FROM campaigns
+        WHERE store_id=$1
+        ORDER BY created_at DESC`,
+      [store_id]
+    );
+    const trs = rows.map(c => {
+      const tipo = (c.discount_type === 'percent') ? 'Porcentaje' :
+                   (c.discount_type === 'absolute') ? 'Monto fijo' : (c.discount_type || '-');
+      const valor = (c.discount_type === 'percent')
+        ? `${Number(c.discount_value)}%`
+        : (c.discount_value != null ? `$ ${Number(c.discount_value).toLocaleString('es-AR')}` : '-');
+      const vig = [c.valid_from, c.valid_until].filter(Boolean).join(' → ');
+      return `<tr>
+        <td class="mono">${c.code}</td>
+        <td><a href="#" title="(editar próximamente)">${c.name || '-'}</a></td>
+        <td>${tipo}</td>
+        <td>${valor}</td>
+        <td><span class="badge">${c.status}</span></td>
+        <td>${vig || '-'}</td>
+      </tr>`;
+    }).join('');
+
+    return `
+      <div class="head">
+        <h1 style="margin:0">Campañas</h1>
+        <a class="btn" href="#" onclick="alert('Crear campaña (próximo)');return false;">Crear campaña</a>
+      </div>
+      <div class="card" style="padding:0;overflow:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Código</th><th>Nombre</th><th>Tipo</th>
+              <th>Valor</th><th>Estado</th><th>Vigencia</th>
+            </tr>
+          </thead>
+          <tbody>${trs || `<tr><td colspan="6" class="muted">No hay campañas.</td></tr>`}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  try {
+    const body = (view === 'campaigns') ? await campaigns() : home();
+    res.end(layout('Panel de administración', body));
+  } catch (e) {
+    console.error('ADMIN render error:', e);
+    res.status(500).end(layout('Error', `<div class="card">Error: ${String(e.message || e)}</div>`));
+  }
 });
+
 
 // -------------------- Start --------------------
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
