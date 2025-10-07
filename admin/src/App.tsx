@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   ResponsiveContainer, BarChart, Bar, Legend,
@@ -41,6 +41,18 @@ function Card({ title, value, subtitle, extra }: { title: string; value: React.R
       {subtitle && <div className="mt-1 text-xs text-slate-500">{subtitle}</div>}
       {extra && <div className="mt-3">{extra}</div>}
     </div>
+  );
+}
+function Badge({ children, color = "gray" }: { children: React.ReactNode; color?: "green"|"gray"|"red" }) {
+  const map = {
+    green: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    gray: "bg-slate-50 text-slate-700 border-slate-200",
+    red: "bg-rose-50 text-rose-700 border-rose-200",
+  } as const;
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${map[color]}`}>
+      {children}
+    </span>
   );
 }
 
@@ -310,8 +322,100 @@ function CampaignsView({
   );
 }
 
-/* ========= Vista: Cupones (layout inicial) ========= */
+/* ========= Tipos ========= */
+type CampaignRow = {
+  id: string | number;
+  code: string;
+  name?: string;
+  status?: string;
+  discount_type?: string;
+  discount_value?: string | number;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  created_at?: string;
+};
+
+/* ========= Vista: Cupones (mejorada) ========= */
 function CouponsView({ storeId }: { storeId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<CampaignRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  // filtros
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState<"" | "active" | "paused" | "expired">("");
+  const [from, setFrom] = useState<string>("");
+  const [to, setTo] = useState<string>("");
+
+  const url = useMemo(() => `/api/campaigns?store_id=${encodeURIComponent(storeId)}`, [storeId]);
+
+  useEffect(() => {
+    let cancel = false;
+    setLoading(true);
+    setError(null);
+    fetch(url)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (!cancel) setRows(Array.isArray(data) ? data : []);
+      })
+      .catch((e) => !cancel && setError(String(e)))
+      .finally(() => !cancel && setLoading(false));
+    return () => { cancel = true; };
+  }, [url]);
+
+  const filtered = useMemo(() => {
+    const norm = (s: unknown) => String(s ?? "").toLowerCase();
+    const inRange = (d: string | null | undefined) => {
+      if (!d) return true;
+      const dv = d.slice(0, 10);
+      if (from && dv < from) return false;
+      if (to && dv > to) return false;
+      return true;
+    };
+    const isExpired = (row: CampaignRow) => {
+      const today = new Date().toISOString().slice(0,10);
+      return !!row.valid_until && today > row.valid_until;
+    };
+
+    return rows.filter(r => {
+      if (q) {
+        const hit = norm(r.code).includes(q.toLowerCase()) || norm(r.name).includes(q.toLowerCase());
+        if (!hit) return false;
+      }
+      if (status) {
+        if (status === "expired") {
+          if (!isExpired(r)) return false;
+        } else {
+          if ((r.status || "").toLowerCase() !== status) return false;
+        }
+      }
+      if (!inRange(r.valid_from) || !inRange(r.valid_until)) return false;
+      return true;
+    });
+  }, [rows, q, status, from, to]);
+
+  const fmtDate = (s?: string | null) => (s ? new Date(s).toLocaleDateString("es-AR") : "-");
+  const fmtValor = (row: CampaignRow) => {
+    if (typeof row.discount_value !== "undefined" && row.discount_type) {
+      return row.discount_type === "percent"
+        ? `${Number(row.discount_value)}%`
+        : `$ ${Number(row.discount_value).toLocaleString("es-AR")}`;
+    }
+    return "-";
+  };
+  const statusBadge = (row: CampaignRow) => {
+    const today = new Date().toISOString().slice(0,10);
+    if (row.valid_until && today > row.valid_until) return <Badge color="red">Vencido</Badge>;
+    const st = (row.status || "").toLowerCase();
+    if (st === "active") return <Badge color="green">Activo</Badge>;
+    if (st === "paused") return <Badge color="gray">Pausado</Badge>;
+    return <Badge color="gray">{row.status || "-"}</Badge>;
+  };
+  const copyCode = async (code: string) => {
+    try { await navigator.clipboard.writeText(code); } catch {}
+  };
+
   return (
     <>
       <div className="mb-6 flex items-center justify-between">
@@ -326,15 +430,99 @@ function CouponsView({ storeId }: { storeId: string }) {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-sm text-slate-600">
-          Acá vas a poder gestionar la integración con los cupones nativos de Tiendanube.
-        </p>
-        <ul className="mt-3 list-disc pl-5 text-sm text-slate-600">
-          <li>Comprobar si el script está instalado para <code>{storeId || "(sin store_id)"}</code>.</li>
-          <li>Instalar o reactivar el script si falta.</li>
-          <li>(Luego) Listar scripts y su estado.</li>
-        </ul>
+      {/* Filtros */}
+      <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-12">
+        <div className="md:col-span-4">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar por código o nombre…"
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+          />
+        </div>
+        <div className="md:col-span-3">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as any)}
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+          >
+            <option value="">Estado: todos</option>
+            <option value="active">Activo</option>
+            <option value="paused">Pausado</option>
+            <option value="expired">Vencido</option>
+          </select>
+        </div>
+        <div className="md:col-span-2">
+          <input
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+            placeholder="Desde"
+          />
+        </div>
+        <div className="md:col-span-2">
+          <input
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+            placeholder="Hasta"
+          />
+        </div>
+        <div className="md:col-span-1">
+          <button
+            onClick={() => { setQ(""); setStatus(""); setFrom(""); setTo(""); }}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50"
+          >
+            Limpiar
+          </button>
+        </div>
+      </div>
+
+      {/* Tabla */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-sm">
+        <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
+          {loading ? "Cargando…" : `${filtered.length} cupones mostrados`}
+          {error && <span className="ml-2 text-rose-600">• Error: {error}</span>}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600">
+              <tr>
+                <th className="px-4 py-2 text-left">Código</th>
+                <th className="px-4 py-2 text-left">Nombre</th>
+                <th className="px-4 py-2 text-left">Tipo</th>
+                <th className="px-4 py-2 text-left">Valor</th>
+                <th className="px-4 py-2 text-left">Estado</th>
+                <th className="px-4 py-2 text-left">Vigencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!loading && filtered.length === 0 && (
+                <tr><td className="px-4 py-6 text-slate-500" colSpan={6}>No hay cupones según los filtros.</td></tr>
+              )}
+              {filtered.map((c) => {
+                const tipo = c.discount_type === "percent" ? "Porcentaje" : c.discount_type === "absolute" ? "Monto fijo" : "-";
+                const vigencia = [fmtDate(c.valid_from || null), fmtDate(c.valid_until || null)].filter(x => x !== "-").join(" → ");
+                return (
+                  <tr key={String(c.id)} className="border-t border-slate-100">
+                    <td className="px-4 py-2 font-mono">
+                      <button onClick={() => copyCode(c.code)} title="Copiar código" className="underline decoration-dotted">
+                        {c.code}
+                      </button>
+                    </td>
+                    <td className="px-4 py-2">{c.name || "-"}</td>
+                    <td className="px-4 py-2">{tipo}</td>
+                    <td className="px-4 py-2">{fmtValor(c)}</td>
+                    <td className="px-4 py-2">{statusBadge(c)}</td>
+                    <td className="px-4 py-2">{vigencia || "-"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   );
