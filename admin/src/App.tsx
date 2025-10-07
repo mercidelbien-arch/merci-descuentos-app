@@ -86,10 +86,11 @@ type Campaign = {
 };
 
 // ========= Sidebar con “router” simple por estado =========
-type ViewName = "home" | "campaigns" | "categories" | "redemptions" | "clients" | "logs";
+// antes: type ViewName = "home" | "campaigns" | ...
+type ViewName = "home" | "campaigns" | "coupons" | "categories" | "redemptions" | "clients" | "logs";
 function Sidebar({ current, onChange }: { current: ViewName; onChange: (v: ViewName) => void }) {
   const items: { key: ViewName; label: string }[] = [
-    { key: "home", label: "Página principal" },
+    { key: "home", label: "Principal" },
     { key: "campaigns", label: "Campañas" },
     { key: "categories", label: "Categorías" },
     { key: "redemptions", label: "Redenciones" },
@@ -223,7 +224,7 @@ function HomeView() {
 }
 
 // ========= Vista: Campañas (fetch real) =========
-function CampaignsView({ storeId }: { storeId: string }) {
+function CampaignsView({ storeId, onGoCoupons }: { storeId: string; onGoCoupons: () => void }) {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<Campaign[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -247,12 +248,17 @@ function CampaignsView({ storeId }: { storeId: string }) {
 
   return (
     <>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Campañas</h1>
-        <button className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
-          Crear campaña
-        </button>
-      </div>
+     div className="mb-6 flex items-center justify-between">
+   <h1 className="text-2xl font-bold">Campañas</h1>
+   <div className="flex items-center gap-2">
+     <button onClick={onGoCoupons} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
+       Cupones
+     </button>
+     <button className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+       Crear campaña
+     </button>
+   </div>
+ </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-sm">
         <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
@@ -305,6 +311,31 @@ function CampaignsView({ storeId }: { storeId: string }) {
     </>
   );
 }
+function CouponsView({ storeId }: { storeId: string }) {
+  return (
+    <>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Cupones</h1>
+        <div className="flex items-center gap-2">
+          <button className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
+            Instalar/Verificar script
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-sm text-slate-600">
+          Acá vas a poder gestionar la integración con los cupones nativos de Tiendanube.
+        </p>
+        <ul className="mt-3 list-disc pl-5 text-sm text-slate-600">
+          <li>Comprobar si el script está instalado para <code>{storeId || "(sin store_id)"}</code>.</li>
+          <li>Instalar o reactivar el script si falta.</li>
+          <li>(Luego) Listar scripts y su estado.</li>
+        </ul>
+      </div>
+    </>
+  );
+}
 
 // ========= App principal =========
 export default function App() {
@@ -329,10 +360,16 @@ export default function App() {
         <main className="flex-1 p-4 sm:p-6">
           {view === "home" && <HomeView />}
           {view === "campaigns" && (
-            storeId
-              ? <CampaignsView storeId={storeId} />
-              : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
-          )}
+  storeId
+    ? <CampaignsView storeId={storeId} onGoCoupons={() => setView("coupons")} />
+    : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
+)}
+
+{view === "coupons" && (
+  storeId
+    ? <CouponsView storeId={storeId} />
+    : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
+)}
           {view !== "home" && view !== "campaigns" && (
             <div className="text-sm text-slate-500">Vista “{view}” en construcción.</div>
           )}
