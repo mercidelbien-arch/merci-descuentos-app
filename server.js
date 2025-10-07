@@ -159,6 +159,36 @@ app.get('/api/tn/categories', async (req, res) => {
   }
 });
 
+// Buscar productos por texto (nombre / SKU)
+app.get('/api/tn/products/search', async (req, res) => {
+  try {
+    const store_id = String(req.query.store_id || '').trim();
+    const q = String(req.query.q || '').trim();
+    if (!store_id) return res.status(400).json({ message: 'Falta store_id' });
+    if (q.length < 2) return res.json([]);
+
+    const r = await pool.query('SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1', [store_id]);
+    if (r.rowCount === 0) return res.status(401).json({ message: 'No hay token para esa tienda' });
+    const token = r.rows[0].access_token;
+
+    // Tiendanube: /products?per_page=30&q=texto  (filtra por nombre/sku)
+    const resp = await axios.get(`${tnBase(store_id)}/products`, {
+      headers: tnHeaders(token),
+      params: { per_page: 30, q },
+    });
+
+    const out = (resp.data || []).map(p => ({
+      id: p.id,
+      name: p.name?.es || p.name?.pt || p.name?.en || `#${p.id}`,
+    }));
+    res.json(out);
+  } catch (e) {
+    console.error('GET /api/tn/products/search error:', e.response?.data || e.message);
+    res.status(e.response?.status || 500).json({ message: 'Error buscando productos' });
+  }
+});
+
+
 app.all('/api/tn/register-callback', async (req, res) => {
   try {
     const store_id = String((req.body?.store_id) || req.query.store_id || '').trim();
