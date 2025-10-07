@@ -797,14 +797,6 @@ app.get('/admin', (req, res, next) => {
   return next(); // que siga al static handler
 });
 
-// ===== Admin (React build) =====
-app.use('/admin', express.static(path.join(__dirname, 'admin/dist'), { maxAge: '1h' }));
-
-// fallback para React Router
-app.get('/admin/*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'admin/dist/index.html'));
-});
-
 
 // -------------------- Start --------------------
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
