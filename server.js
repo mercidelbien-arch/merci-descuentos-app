@@ -786,17 +786,13 @@ app.post('/discounts/callback', async (req, res) => {
 
 app.post('/webhooks/orders/create', (_req, res) => res.sendStatus(200));
 
-// Redirección legacy: /admin?store_id=...&view=campaigns  ->  /admin/campaigns?store_id=...
-app.get('/admin', (req, res, next) => {
-  const view = String(req.query.view || '');
-  if (view.toLowerCase() === 'campaigns') {
-    const q = new URLSearchParams(req.query);
-    q.delete('view'); // quitamos el flag legacy
-    return res.redirect(`/admin/campaigns?${q.toString()}`);
-  }
-  return next(); // que siga al static handler
-});
+// ===== Admin (React build) =====
+app.use('/admin', express.static(path.join(__dirname, 'admin/dist'), { maxAge: '1h' }));
 
+// fallback para React Router (maneja rutas como /admin/campaigns, /admin/clients, etc.)
+app.get('/admin/*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin/dist/index.html'));
+});
 
 // -------------------- Start --------------------
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
