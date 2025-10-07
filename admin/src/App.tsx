@@ -78,7 +78,7 @@ type Campaign = {
   code: string;
   name?: string;
   status?: string;
-  discount_type?: string; // percent | absolute (según tu API)
+  discount_type?: string; // percent | absolute
   discount_value?: string | number;
   valid_from?: string | null;
   valid_until?: string | null;
@@ -86,7 +86,19 @@ type Campaign = {
 };
 
 /* ========= Sidebar & router por estado ========= */
-type ViewName = "home" | "campaigns" | "coupons" | "categories" | "redemptions" | "clients" | "logs";
+type ViewName =
+  | "home"
+  | "campaigns"
+  | "coupons"
+  | "bogo"
+  | "category_percent"
+  | "category_fixed"
+  | "free_shipping"
+  | "categories"
+  | "redemptions"
+  | "clients"
+  | "logs";
+
 function Sidebar({ current, onChange }: { current: ViewName; onChange: (v: ViewName) => void }) {
   const items: { key: ViewName; label: string }[] = [
     { key: "home", label: "Principal" },
@@ -186,15 +198,6 @@ function HomeView() {
           <div className="mt-4 text-xs text-slate-500">Ayuda a entender si la app aporta valor adicional o se solapa con TN.</div>
         </Section>
 
-        <Section title="KPIs de ticket">
-          <div className="grid grid-cols-2 gap-3">
-            <Card title="Descuento prom. por pedido" value={<Peso amount={k.descuentoPromedioPorPedido} />} />
-            <Card title="% pedidos con cupón" value={`${Math.round(k.porcentajePedidosConCupon * 100)}%`} />
-            <Card title="Ticket con descuento" value={<Peso amount={k.ticketPromedioCon} />} />
-            <Card title="Ticket sin descuento" value={<Peso amount={k.ticketPromedioSin} />} />
-          </div>
-        </Section>
-
         <Section title="Topes y alertas">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div>
@@ -210,7 +213,7 @@ function HomeView() {
             </div>
             <div>
               <div className="text-sm font-medium text-slate-700 mb-2">Clientes al tope mensual</div>
-              <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-4 text-rose-800">
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-4 text-rose-800">
                 <div className="text-3xl font-bold">{k.topes.clientesAlTope}</div>
                 <div className="text-sm mt-1">clientes alcanzaron su tope este mes</div>
               </div>
@@ -222,90 +225,97 @@ function HomeView() {
   );
 }
 
-/* ========= Vista: Campañas (fetch real) ========= */
-function CampaignsView({ storeId, onGoCoupons }: { storeId: string; onGoCoupons: () => void }) {
-  const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<Campaign[]>([]);
-  const [error, setError] = useState<string | null>(null);
+/* ========= Botón grande para tipos de campaña ========= */
+function CampaignTypeCard({
+  title,
+  desc,
+  onClick,
+  icon,
+}: {
+  title: string;
+  desc: string;
+  onClick: () => void;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="group h-36 w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+    >
+      <div className="flex items-start gap-3">
+        <div className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-blue-600">
+          {icon ?? (
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+              <path d="M21 7h-7l-2-2H3a1 1 0 0 0-1 1v5a2 2 0 1 0 0 4v5a1 1 0 0 0 1 1h9l2-2h7a1 1 0 0 0 1-1v-4a2 2 0 1 1 0-4V8a1 1 0 0 0-1-1zM6.5 13a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z" />
+            </svg>
+          )}
+        </div>
+        <div className="flex-1">
+          <div className="text-base font-semibold text-slate-900">{title}</div>
+          <div className="mt-1 text-sm text-slate-600">{desc}</div>
+          <div className="mt-3 text-sm font-medium text-blue-700 opacity-0 transition group-hover:opacity-100">
+            Entrar →
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
 
-  const url = useMemo(() => `/api/campaigns?store_id=${encodeURIComponent(storeId)}`, [storeId]);
-
-  useEffect(() => {
-    let cancel = false;
-    setLoading(true);
-    setError(null);
-    fetch(url)
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json();
-        if (!cancel) setRows(Array.isArray(data) ? data : []);
-      })
-      .catch((e) => !cancel && setError(String(e)))
-      .finally(() => !cancel && setLoading(false));
-    return () => { cancel = true; };
-  }, [url]);
-
+/* ========= Vista: Campañas (HUB con botones grandes) ========= */
+function CampaignsView({
+  storeId,
+  onNavigate,
+}: {
+  storeId: string;
+  onNavigate: (v: ViewName) => void;
+}) {
   return (
     <>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Campañas</h1>
-        <div className="flex items-center gap-2">
-          <button onClick={onGoCoupons} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
-            Cupones
-          </button>
-          <button className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
-            Crear campaña
-          </button>
-        </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-sm">
-        <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
-          {loading ? "Cargando…" : `${rows.length} campañas encontradas`}
-          {error && <span className="ml-2 text-rose-600">• Error: {error}</span>}
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="px-4 py-2 text-left">Código</th>
-                <th className="px-4 py-2 text-left">Nombre</th>
-                <th className="px-4 py-2 text-left">Tipo</th>
-                <th className="px-4 py-2 text-left">Valor</th>
-                <th className="px-4 py-2 text-left">Estado</th>
-                <th className="px-4 py-2 text-left">Vigencia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!loading && rows.length === 0 && (
-                <tr><td className="px-4 py-4 text-slate-500" colSpan={6}>No hay campañas.</td></tr>
-              )}
-              {rows.map((c) => {
-                const tipo = c.discount_type === "percent" ? "Porcentaje" : c.discount_type === "absolute" ? "Monto fijo" : (c as any).type || "-";
-                const valor = typeof c.discount_value !== "undefined"
-                  ? c.discount_type === "percent"
-                    ? `${Number(c.discount_value)}%`
-                    : `$ ${Number(c.discount_value).toLocaleString("es-AR")}`
-                  : (c as any).value ?? "-";
-                const vigencia = [
-                  c.valid_from ? new Date(c.valid_from).toLocaleDateString("es-AR") : null,
-                  c.valid_until ? new Date(c.valid_until).toLocaleDateString("es-AR") : null,
-                ].filter(Boolean).join(" → ");
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <CampaignTypeCard
+          title="Cupones"
+          desc="Códigos de descuento en % o monto fijo."
+          onClick={() => onNavigate("coupons")}
+          icon={
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+              <path d="M21 7h-7l-2-2H3a1 1 0 0 0-1 1v5a2 2 0 1 0 0 4v5a1 1 0 0 0 1 1h9l2-2h7a1 1 0 0 0 1-1v-4a2 2 0 1 1 0-4V8a1 1 0 0 0-1-1zM6.5 13a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z" />
+            </svg>
+          }
+        />
+        <CampaignTypeCard
+          title="2×1 (BOGO)"
+          desc="Lleva 2, paga 1. Ideal para combos."
+          onClick={() => onNavigate("bogo")}
+        />
+        <CampaignTypeCard
+          title="% por categoría"
+          desc="Descuento por rubros específicos."
+          onClick={() => onNavigate("category_percent")}
+        />
+        <CampaignTypeCard
+          title="Monto fijo por categoría"
+          desc="Descuento fijo para categorías."
+          onClick={() => onNavigate("category_fixed")}
+        />
+        <CampaignTypeCard
+          title="Envío gratis"
+          desc="Promos de envío sin costo."
+          onClick={() => onNavigate("free_shipping")}
+        />
+      </div>
 
-                return (
-                  <tr key={String(c.id)} className="border-t border-slate-100">
-                    <td className="px-4 py-2 font-mono">{c.code}</td>
-                    <td className="px-4 py-2">{c.name || "-"}</td>
-                    <td className="px-4 py-2">{tipo}</td>
-                    <td className="px-4 py-2">{valor}</td>
-                    <td className="px-4 py-2">{(c.status || "-").toString()}</td>
-                    <td className="px-4 py-2">{vigencia || "-"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+        Elegí un tipo de campaña. <b>Cupones</b> te lleva al listado actual; los demás están “en construcción”.
+        {storeId ? null : (
+          <span className="ml-2 text-rose-600">
+            • Falta <code>store_id</code> en la URL para operar.
+          </span>
+        )}
       </div>
     </>
   );
@@ -320,6 +330,9 @@ function CouponsView({ storeId }: { storeId: string }) {
         <div className="flex items-center gap-2">
           <button className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
             Instalar/Verificar script
+          </button>
+          <button className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+            Crear cupón
           </button>
         </div>
       </div>
@@ -363,7 +376,7 @@ export default function App() {
 
           {view === "campaigns" && (
             storeId
-              ? <CampaignsView storeId={storeId} onGoCoupons={() => setView("coupons")} />
+              ? <CampaignsView storeId={storeId} onNavigate={(v) => setView(v)} />
               : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
           )}
 
