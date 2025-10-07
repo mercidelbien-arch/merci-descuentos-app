@@ -3,6 +3,33 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   ResponsiveContainer, BarChart, Bar, Legend,
 } from "recharts";
+/* ===== Iconitos simples ===== */
+const IconTag = () => (
+  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M20 13l-7 7a2 2 0 0 1-2.828 0L3 13l7-7L20 13z" />
+    <circle cx="7.5" cy="7.5" r="1.5" />
+  </svg>
+);
+const IconPercent = () => (
+  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M19 5L5 19" />
+    <circle cx="7" cy="7" r="3" />
+    <circle cx="17" cy="17" r="3" />
+  </svg>
+);
+const IconLayers = () => (
+  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M12 2l9 5-9 5-9-5 9-5z" />
+    <path d="M3 12l9 5 9-5" />
+    <path d="M3 17l9 5 9-5" />
+  </svg>
+);
+const IconSettings = () => (
+  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.07a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.07a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.02 3.2l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V2a2 2 0 1 1 4 0v.07c0 .67.39 1.27 1 1.51.59.24 1.26.14 1.76-.26l.24-.2a2 2 0 1 1 2.53 3.06l-.06.06c-.5.5-.63 1.25-.33 1.85.29.57.9.93 1.55.91H21a2 2 0 1 1 0 4h-.07c-.67 0-1.27.39-1.51 1z"/>
+  </svg>
+);
 
 /* ========= Utilitarios UI ========= */
 function Trend({ value }: { value: number }) {
@@ -245,127 +272,53 @@ function HomeView() {
   );
 }
 
-/* ========= Vista: Campañas (tabla simple + CTA cupones) ========= */
-function CampaignsView({ storeId, onGoCoupons }: { storeId: string; onGoCoupons: () => void }) {
-  const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<Campaign[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  const url = useMemo(() => `/api/campaigns?store_id=${encodeURIComponent(storeId)}`, [storeId]);
-
-  useEffect(() => {
-    let cancel = false;
-    setLoading(true);
-    setError(null);
-    fetch(url)
-      .then(async (r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json();
-        if (!cancel) setRows(Array.isArray(data) ? data : []);
-      })
-      .catch((e) => !cancel && setError(String(e)))
-      .finally(() => !cancel && setLoading(false));
-    return () => { cancel = true; };
-  }, [url]);
-
+/* ========= Vista: Campañas (solo cards con iconos) ========= */
+function CampaignsView({ onGoCoupons }: { onGoCoupons: () => void }) {
   return (
     <>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Campañas</h1>
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-  <button
-    onClick={onGoCoupons}
-    className="rounded-2xl border border-slate-200 bg-white px-5 py-6 text-left shadow-sm hover:bg-slate-50"
-  >
-    <div className="text-base font-semibold text-slate-900">Cupones</div>
-    <div className="text-sm text-slate-500 mt-1">Códigos % o $ por período</div>
-  </button>
-
-  <button
-    disabled
-    className="rounded-2xl border border-slate-200 bg-white/60 px-5 py-6 text-left shadow-sm"
-    title="Próximamente"
-  >
-    <div className="text-base font-semibold text-slate-400">2×1 (Próx.)</div>
-    <div className="text-sm text-slate-400 mt-1">Promos por cantidad</div>
-  </button>
-
-  <button
-    disabled
-    className="rounded-2xl border border-slate-200 bg-white/60 px-5 py-6 text-left shadow-sm"
-    title="Próximamente"
-  >
-    <div className="text-base font-semibold text-slate-400">Por categoría (Próx.)</div>
-    <div className="text-sm text-slate-400 mt-1">Restringir por rubros</div>
-  </button>
-
-  <button
-    disabled
-    className="rounded-2xl border border-slate-200 bg-white/60 px-5 py-6 text-left shadow-sm"
-    title="Próximamente"
-  >
-    <div className="text-base font-semibold text-slate-400">Reglas avanzadas (Próx.)</div>
-    <div className="text-sm text-slate-400 mt-1">Topes, min. de carrito, etc.</div>
-  </button>
-</div>
-
-        <div className="flex items-center gap-2">
-          <button onClick={onGoCoupons} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
-            Cupones
-          </button>
-          <button className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
-            Crear campaña
-          </button>
-        </div>
+        <button className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+          Crear campaña
+        </button>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-sm">
-        <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
-          {loading ? "Cargando…" : `${rows.length} campañas encontradas`}
-          {error && <span className="ml-2 text-rose-600">• Error: {error}</span>}
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="px-4 py-2 text-left">Código</th>
-                <th className="px-4 py-2 text-left">Nombre</th>
-                <th className="px-4 py-2 text-left">Tipo</th>
-                <th className="px-4 py-2 text-left">Valor</th>
-                <th className="px-4 py-2 text-left">Estado</th>
-                <th className="px-4 py-2 text-left">Vigencia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!loading && rows.length === 0 && (
-                <tr><td className="px-4 py-4 text-slate-500" colSpan={6}>No hay campañas.</td></tr>
-              )}
-              {rows.map((c) => {
-                const tipo = c.discount_type === "percent" ? "Porcentaje" : c.discount_type === "absolute" ? "Monto fijo" : (c as any).type || "-";
-                const valor = typeof c.discount_value !== "undefined"
-                  ? c.discount_type === "percent"
-                    ? `${Number(c.discount_value)}%`
-                    : `$ ${Number(c.discount_value).toLocaleString("es-AR")}`
-                  : (c as any).value ?? "-";
-                const vigencia = [
-                  c.valid_from ? new Date(c.valid_from).toLocaleDateString("es-AR") : null,
-                  c.valid_until ? new Date(c.valid_until).toLocaleDateString("es-AR") : null,
-                ].filter(Boolean).join(" → ");
+      {/* Cards/tiles */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <button
+          onClick={onGoCoupons}
+          className="group rounded-2xl border border-slate-200 bg-white px-5 py-6 text-left shadow-sm hover:bg-slate-50"
+        >
+          <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+            <IconPercent />
+          </div>
+          <div className="text-base font-semibold text-slate-900">Cupones</div>
+          <div className="text-sm text-slate-500 mt-1">Códigos % o $ por período</div>
+        </button>
 
-                return (
-                  <tr key={String(c.id)} className="border-t border-slate-100">
-                    <td className="px-4 py-2 font-mono">{c.code}</td>
-                    <td className="px-4 py-2">{c.name || "-"}</td>
-                    <td className="px-4 py-2">{tipo}</td>
-                    <td className="px-4 py-2">{valor}</td>
-                    <td className="px-4 py-2">{statusBadge(c.status)}</td>
-                    <td className="px-4 py-2">{vigencia || "-"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <button disabled className="rounded-2xl border border-slate-200 bg-white/60 px-5 py-6 text-left shadow-sm" title="Próximamente">
+          <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+            <IconTag />
+          </div>
+          <div className="text-base font-semibold text-slate-400">2×1 (Próx.)</div>
+          <div className="text-sm text-slate-400 mt-1">Promos por cantidad</div>
+        </button>
+
+        <button disabled className="rounded-2xl border border-slate-200 bg-white/60 px-5 py-6 text-left shadow-sm" title="Próximamente">
+          <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+            <IconLayers />
+          </div>
+          <div className="text-base font-semibold text-slate-400">Por categoría (Próx.)</div>
+          <div className="text-sm text-slate-400 mt-1">Restringir por rubros</div>
+        </button>
+
+        <button disabled className="rounded-2xl border border-slate-200 bg-white/60 px-5 py-6 text-left shadow-sm" title="Próximamente">
+          <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+            <IconSettings />
+          </div>
+          <div className="text-base font-semibold text-slate-400">Reglas avanzadas (Próx.)</div>
+          <div className="text-sm text-slate-400 mt-1">Topes, min. de carrito, etc.</div>
+        </button>
       </div>
     </>
   );
@@ -520,11 +473,7 @@ export default function App() {
         <main className="flex-1 p-4 sm:p-6">
           {view === "home" && <HomeView />}
 
-          {view === "campaigns" && (
-            storeId
-              ? <CampaignsView storeId={storeId} onGoCoupons={() => setView("coupons")} />
-              : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
-          )}
+          {view === "campaigns" && <CampaignsView onGoCoupons={() => setView("coupons")} />}
 
           {view === "coupons" && (
             storeId
