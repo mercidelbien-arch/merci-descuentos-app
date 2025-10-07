@@ -31,6 +31,7 @@ app.use(cookieSession({
   httpOnly: true,
   sameSite: 'lax',
 }));
+app.use(express.static("admin/dist"));
 
 // -------------------- Rutas básicas --------------------
 app.get('/api/health', (_req, res) => {
