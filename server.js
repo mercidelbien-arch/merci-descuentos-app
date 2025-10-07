@@ -1,4 +1,4 @@
-// server.js — TODO en ESM, sin duplicados
+// server.js — ESM limpio, Express + APIs Merci
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -9,7 +9,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 
 import templatesRouter from './api/routes/templates.js';
-import { pool } from './db.js'; // <-- db.js debe exportar { pool }
+import { pool } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -21,7 +21,7 @@ const PROMO_ID = process.env.TN_PROMO_ID || '1c508de3-84a0-4414-9c75-c2aee4814fc
 const app = express();
 app.set('trust proxy', 1);
 
-// Middlewares (orden correcto)
+// --- Middlewares (orden correcto) ---
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -31,20 +31,20 @@ app.use(cookieSession({
   httpOnly: true,
   sameSite: 'lax',
 }));
-app.use(express.static("admin/dist"));
+
+// OJO: NO servimos todo / desde admin/dist para evitar conflictos.
+// Solo servimos /admin más abajo con fallback SPA.
 
 // -------------------- Rutas básicas --------------------
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, node: process.version, ts: Date.now() });
 });
 
-// Router de plantillas
+// Router de plantillas (si lo usás)
 app.use('/api/templates', templatesRouter);
 
 // Widget estático (solo /widget)
 app.use('/widget', express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
-
-// (No servimos /admin como estático; abajo definimos una vista dinámica)
 
 // -------------------- DB / Utilidades --------------------
 app.get('/api/db/ping', async (_req, res) => {
@@ -83,10 +83,12 @@ const MIGRATE_SQL = `
     name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
 
+    -- modelo viejo (mantengo para compatibilidad)
     type TEXT NOT NULL CHECK (type IN ('percentage','absolute')),
     value INTEGER NOT NULL,
 
-    discount_type TEXT,
+    -- modelo nuevo (el que usa el motor/callback)
+    discount_type TEXT,          -- 'percent' | 'absolute'
     discount_value NUMERIC,
 
     valid_from DATE,
@@ -97,6 +99,7 @@ const MIGRATE_SQL = `
     monthly_cap_amount NUMERIC,
     exclude_sale_items BOOLEAN DEFAULT false,
 
+    -- campos legacy (no usados por el motor, pero preservo)
     min_cart INTEGER DEFAULT 0,
     monthly_cap INTEGER DEFAULT 0,
     exclude_on_sale BOOLEAN DEFAULT false,
@@ -115,12 +118,20 @@ const MIGRATE_SQL = `
   );
 `;
 app.get('/api/db/migrate', async (_req, res) => {
-  try { await pool.query(MIGRATE_SQL); res.json({ ok: true, message: 'Migraciones aplicadas' }); }
-  catch (e) { console.error('MIGRATE error:', e); res.status(500).json({ ok: false, error: e.message }); }
+  try {
+    await pool.query(MIGRATE_SQL);
+    res.json({ ok: true, message: 'Migraciones aplicadas' });
+  } catch (e) {
+    console.error('MIGRATE error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 // -------------------- Redirección Home -> Admin --------------------
-app.get('/', (_req, res) => { res.redirect('/admin/?store_id=3739596'); });
+app.get('/', (_req, res) => {
+  // Ajustá este store_id si querés uno por defecto distinto
+  res.redirect('/admin/?store_id=3739596');
+});
 
 // -------------------- OAuth Tienda Nube --------------------
 app.get('/install', (req, res) => {
@@ -171,14 +182,15 @@ app.get('/oauth/callback', async (req, res) => {
   }
 });
 
-// -------------------- TN Helpers --------------------
+// -------------------- Tienda Nube helpers --------------------
 function tnBase(store_id) { return `https://api.tiendanube.com/v1/${store_id}`; }
 function tnHeaders(token) {
   return {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
-    'User-Agent': 'Merci Descuentos (andres.barba82@gmail.com)',
+    // TN usa 'Authentication' (no Authorization)
     'Authentication': `bearer ${token}`,
+    'User-Agent': 'Merci Descuentos (andres.barba82@gmail.com)',
   };
 }
 
@@ -206,14 +218,16 @@ app.get('/api/tn/categories', async (req, res) => {
   }
 });
 
-// TN: scripts/promotions (resumen)
+// Registrar callback del motor de descuentos en TN
 app.all('/api/tn/register-callback', async (req, res) => {
   try {
     const store_id = String((req.body?.store_id) || req.query.store_id || '').trim();
     if (!store_id) return res.status(400).json({ message: 'Falta store_id' });
+
     const r = await pool.query('SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1', [store_id]);
     if (r.rowCount === 0) return res.status(401).json({ message: 'No hay token para esa tienda' });
     const token = r.rows[0].access_token;
+
     const callbackUrl = `${process.env.APP_BASE_URL}/discounts/callback`;
     const resp = await axios.put(`${tnBase(store_id)}/discounts/callbacks`, { url: callbackUrl }, { headers: tnHeaders(token), timeout: 8000 });
     return res.json({ ok: true, data: resp.data || null, url: callbackUrl });
@@ -226,9 +240,11 @@ app.get('/api/tn/promotions/register-base', async (req, res) => {
   try {
     const store_id = String(req.query.store_id || '').trim();
     if (!store_id) return res.status(400).json({ ok:false, error:'Falta store_id' });
+
     const r = await pool.query('SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1', [store_id]);
     if (r.rowCount === 0) return res.status(401).json({ ok:false, error:'No hay token para esa tienda' });
     const token = r.rows[0].access_token;
+
     const body = { name: 'Merci Engine – Base', allocation_type: 'cross_items' };
     const resp = await axios.post(`${tnBase(store_id)}/promotions`, body, { headers: tnHeaders(token) });
     return res.json({ ok:true, data: resp.data });
@@ -237,13 +253,16 @@ app.get('/api/tn/promotions/register-base', async (req, res) => {
   }
 });
 
+// Listar/instalar scripts TN
 app.get('/api/tn/scripts/list', async (req, res) => {
   try {
     const store_id = String(req.query.store_id || '').trim();
     if (!store_id) return res.status(400).json({ ok:false, error:'Falta store_id' });
+
     const r = await pool.query('SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1', [store_id]);
     if (r.rowCount === 0) return res.status(401).json({ ok:false, error:'No hay token para esa tienda' });
     const token = r.rows[0].access_token;
+
     const listRes = await axios.get(`${tnBase(store_id)}/scripts`, { headers: tnHeaders(token) });
     return res.json({ ok:true, raw:listRes.data });
   } catch (e) {
@@ -261,6 +280,7 @@ app.all('/api/tn/scripts/install/by-id', async (req, res) => {
     const r = await pool.query('SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1', [store_id]);
     if (r.rowCount === 0) return res.status(401).json({ ok:false, error:'No hay token para esa tienda' });
     const token = r.rows[0].access_token;
+
     try {
       const upd = await axios.put(`${tnBase(store_id)}/scripts/${script_id}`, { script_id, enabled: true }, { headers: tnHeaders(token) });
       return res.json({ ok:true, action:'updated_by_id', data: upd.data });
@@ -277,6 +297,7 @@ app.all('/api/tn/scripts/install/direct', async (req, res) => {
   try {
     const store_id = String(req.body?.store_id || req.query.store_id || '').trim();
     if (!store_id) return res.status(400).json({ ok:false, error:'Falta store_id' });
+
     const src = String(req.body?.src || req.query.src || `${process.env.APP_BASE_URL}/widget/merci-checkout-coupon-widget.js`).trim();
     const name = String(req.body?.name || req.query.name || 'Merci Checkout Widget (direct)').trim();
     const event = String(req.body?.event || req.query.event || 'onload').trim();
@@ -483,7 +504,7 @@ app.post('/api/campaigns', async (req, res) => {
     const name = String(b.name || '').trim();
     if (!store_id || !code || !name) return res.status(400).json({ message: 'Faltan store_id, code o name' });
 
-    const discount_type = (b.discount_type || 'percent').toLowerCase(); // 'percent' | 'fixed'
+    const discount_type = (b.discount_type || 'percent').toLowerCase(); // 'percent' | 'absolute'
     const discount_value_num = Number(b.discount_value ?? 0);
     const type = discount_type === 'percent' ? 'percentage' : 'absolute';
     const value = Number.isFinite(discount_value_num) ? Math.round(discount_value_num) : 0;
@@ -503,9 +524,11 @@ app.post('/api/campaigns', async (req, res) => {
     const include_product_ids  = toJsonb(b.include_product_ids);
     const exclude_product_ids  = toJsonb(b.exclude_product_ids);
 
+    // legacy (no usado por motor, pero lo llenamos coherente)
     const min_cart     = b.min_cart     != null ? Number(b.min_cart)     : 0;
     const monthly_cap  = b.monthly_cap  != null ? Number(b.monthly_cap)  : 0;
     const exclude_on_sale = b.exclude_on_sale != null ? !!b.exclude_on_sale : false;
+
     const status = 'active';
 
     const sql = `
@@ -556,63 +579,43 @@ app.post('/api/campaigns', async (req, res) => {
   }
 });
 
-// -------------------- Campañas vigentes --------------------
-app.get('/api/campaigns/active', async (req, res) => {
-  const store_id = String(req.query.store_id || '').trim();
-  if (!store_id) return res.json([]);
-  const today = new Date().toISOString().slice(0,10);
-
-  const sqlWithUses = `
-    WITH c AS (
-      SELECT id, store_id, code, name, status,
-             discount_type, discount_value,
-             valid_from, valid_until,
-             apply_scope, min_cart_amount,
-             max_discount_amount, monthly_cap_amount,
-             exclude_sale_items, created_at, updated_at
-        FROM campaigns
-       WHERE store_id = $1
-         AND status = 'active'
-         AND ($2::date >= COALESCE(valid_from, $2::date))
-         AND ($2::date <= COALESCE(valid_until, $2::date))
-    ),
-    u AS (
-      SELECT UPPER(code) AS code, COUNT(*)::int AS uses
-        FROM coupon_ledger
-       WHERE store_id = $1
-       GROUP BY 1
-    )
-    SELECT c.*, COALESCE(u.uses,0) AS uses
-      FROM c LEFT JOIN u ON UPPER(c.code)=u.code
-     ORDER BY c.updated_at DESC NULLS LAST, c.created_at DESC;
-  `;
-
-  const sqlNoUses = `
-    SELECT id, store_id, code, name, status,
-           discount_type, discount_value,
-           valid_from, valid_until,
-           apply_scope, min_cart_amount,
-           max_discount_amount, monthly_cap_amount,
-           exclude_sale_items, created_at, updated_at,
-           0::int AS uses
-      FROM campaigns
-     WHERE store_id = $1
-       AND status = 'active'
-       AND ($2::date >= COALESCE(valid_from, $2::date))
-       AND ($2::date <= COALESCE(valid_until, $2::date))
-     ORDER BY updated_at DESC NULLS LAST, created_at DESC;
-  `;
-
+// Cambiar estado (toggle) active <-> paused
+app.post('/api/campaigns/:id/toggle-status', async (req, res) => {
   try {
-    const { rows } = await pool.query(sqlWithUses, [store_id, today]);
-    return res.json(rows);
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ ok:false, error:'Falta id' });
+
+    const { rows } = await pool.query(`SELECT status FROM campaigns WHERE id=$1 LIMIT 1`, [id]);
+    if (rows.length === 0) return res.status(404).json({ ok:false, error:'No existe campaña' });
+
+    const curr = (rows[0].status || '').toLowerCase();
+    const next = curr === 'active' ? 'paused' : 'active';
+
+    const upd = await pool.query(
+      `UPDATE campaigns SET status=$1, updated_at=now() WHERE id=$2 RETURNING id, code, name, status`,
+      [next, id]
+    );
+
+    return res.json({ ok:true, campaign: upd.rows[0] });
   } catch (e) {
-    if (/relation .*coupon_ledger.* does not exist/i.test(String(e.message||e))) {
-      const { rows } = await pool.query(sqlNoUses, [store_id, today]);
-      return res.json(rows);
-    }
-    console.error('GET /api/campaigns/active error:', e);
-    return res.status(500).json({ message: 'Error listando cupones activos' });
+    console.error('POST /api/campaigns/:id/toggle-status error:', e);
+    return res.status(500).json({ ok:false, error: e.message });
+  }
+});
+
+// Eliminar campaña
+app.delete('/api/campaigns/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ ok:false, error:'Falta id' });
+
+    const del = await pool.query(`DELETE FROM campaigns WHERE id=$1`, [id]);
+    if (del.rowCount === 0) return res.status(404).json({ ok:false, error:'No existe campaña' });
+
+    return res.json({ ok:true, deleted: id });
+  } catch (e) {
+    console.error('DELETE /api/campaigns/:id error:', e);
+    return res.status(500).json({ ok:false, error: e.message });
   }
 });
 
@@ -784,13 +787,14 @@ app.post('/discounts/callback', async (req, res) => {
   }
 });
 
+// Webhook “no-op” (placeholder)
 app.post('/webhooks/orders/create', (_req, res) => res.sendStatus(200));
 
 // ===== Admin (React build) =====
 app.use('/admin', express.static(path.join(__dirname, 'admin/dist'), { maxAge: '1h' }));
 
-// fallback para React Router (maneja rutas como /admin/campaigns, /admin/clients, etc.)
-app.get('/admin/*', (req, res) => {
+// Fallback SPA para rutas de React Router (p.ej. /admin/campaigns)
+app.get('/admin/*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'admin/dist/index.html'));
 });
 
