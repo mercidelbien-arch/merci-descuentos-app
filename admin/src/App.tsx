@@ -272,6 +272,43 @@ function CampaignsView({ storeId, onGoCoupons }: { storeId: string; onGoCoupons:
     <>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Campañas</h1>
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+  <button
+    onClick={onGoCoupons}
+    className="rounded-2xl border border-slate-200 bg-white px-5 py-6 text-left shadow-sm hover:bg-slate-50"
+  >
+    <div className="text-base font-semibold text-slate-900">Cupones</div>
+    <div className="text-sm text-slate-500 mt-1">Códigos % o $ por período</div>
+  </button>
+
+  <button
+    disabled
+    className="rounded-2xl border border-slate-200 bg-white/60 px-5 py-6 text-left shadow-sm"
+    title="Próximamente"
+  >
+    <div className="text-base font-semibold text-slate-400">2×1 (Próx.)</div>
+    <div className="text-sm text-slate-400 mt-1">Promos por cantidad</div>
+  </button>
+
+  <button
+    disabled
+    className="rounded-2xl border border-slate-200 bg-white/60 px-5 py-6 text-left shadow-sm"
+    title="Próximamente"
+  >
+    <div className="text-base font-semibold text-slate-400">Por categoría (Próx.)</div>
+    <div className="text-sm text-slate-400 mt-1">Restringir por rubros</div>
+  </button>
+
+  <button
+    disabled
+    className="rounded-2xl border border-slate-200 bg-white/60 px-5 py-6 text-left shadow-sm"
+    title="Próximamente"
+  >
+    <div className="text-base font-semibold text-slate-400">Reglas avanzadas (Próx.)</div>
+    <div className="text-sm text-slate-400 mt-1">Topes, min. de carrito, etc.</div>
+  </button>
+</div>
+
         <div className="flex items-center gap-2">
           <button onClick={onGoCoupons} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
             Cupones

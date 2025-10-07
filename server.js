@@ -495,6 +495,47 @@ app.get('/api/campaigns', async (req, res) => {
     res.status(500).json({ message: 'Error al obtener campañas' });
   }
 });
+// === Cambiar estado de una campaña (active|paused) ===
+app.patch('/api/campaigns/:id/status', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    const next = String(req.body?.status || '').trim().toLowerCase(); // active | paused
+    if (!id)   return res.status(400).json({ ok:false, error:'Falta id' });
+    if (!['active','paused'].includes(next)) {
+      return res.status(400).json({ ok:false, error:'Estado inválido (use active|paused)' });
+    }
+    const { rowCount, rows } = await pool.query(
+      `UPDATE campaigns SET status = $2, updated_at = now() WHERE id = $1 RETURNING id, code, status`,
+      [id, next]
+    );
+    if (rowCount === 0) return res.status(404).json({ ok:false, error:'No existe la campaña' });
+    res.json({ ok:true, campaign: rows[0] });
+  } catch (e) {
+    console.error('PATCH /api/campaigns/:id/status error:', e);
+    res.status(500).json({ ok:false, error: e.message });
+  }
+});
+
+// === Eliminar campaña (soft delete → status = 'deleted') ===
+app.delete('/api/campaigns/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ ok:false, error:'Falta id' });
+
+    const { rowCount, rows } = await pool.query(
+      `UPDATE campaigns
+         SET status = 'deleted', updated_at = now()
+       WHERE id = $1
+       RETURNING id, code, status`,
+      [id]
+    );
+    if (rowCount === 0) return res.status(404).json({ ok:false, error:'No existe la campaña' });
+    res.json({ ok:true, campaign: rows[0] });
+  } catch (e) {
+    console.error('DELETE /api/campaigns/:id error:', e);
+    res.status(500).json({ ok:false, error: e.message });
+  }
+});
 
 // ---- Cambiar estado (active | paused) ----
 app.patch('/api/campaigns/:id/status', async (req, res) => {
