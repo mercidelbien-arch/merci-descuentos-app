@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   ResponsiveContainer, BarChart, Bar, Legend,
@@ -73,17 +73,6 @@ function useQueryParam(name: string) {
   const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
   return params.get(name);
 }
-type Campaign = {
-  id: string | number;
-  code: string;
-  name?: string;
-  status?: string;
-  discount_type?: string; // percent | absolute
-  discount_value?: string | number;
-  valid_from?: string | null;
-  valid_until?: string | null;
-  created_at?: string;
-};
 
 /* ========= Sidebar & router por estado ========= */
 type ViewName =
