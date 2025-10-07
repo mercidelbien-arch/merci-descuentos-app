@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, BarChart, Bar, Legend,
 } from "recharts";
 
-// ========= Utilitarios UI =========
+/* ========= Utilitarios UI ========= */
 function Trend({ value }: { value: number }) {
   const isUp = value >= 0;
   const pct = Math.round(Math.abs(value) * 100);
@@ -44,7 +44,7 @@ function Card({ title, value, subtitle, extra }: { title: string; value: React.R
   );
 }
 
-// ========= Datos mock del dashboard (se quedan igual, solo para “Página principal”) =========
+/* ========= Datos mock “Principal” ========= */
 const MOCK_KPIS = {
   monthLabel: "Septiembre 2025",
   montoTotalDescontado: 428450,
@@ -68,7 +68,7 @@ const MOCK_RANKING = [
   { name: "2x1 Barritas", monto: 30450 },
 ];
 
-// ========= Helpers =========
+/* ========= Helpers ========= */
 function useQueryParam(name: string) {
   const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
   return params.get(name);
@@ -85,8 +85,7 @@ type Campaign = {
   created_at?: string;
 };
 
-// ========= Sidebar con “router” simple por estado =========
-// antes: type ViewName = "home" | "campaigns" | ...
+/* ========= Sidebar & router por estado ========= */
 type ViewName = "home" | "campaigns" | "coupons" | "categories" | "redemptions" | "clients" | "logs";
 function Sidebar({ current, onChange }: { current: ViewName; onChange: (v: ViewName) => void }) {
   const items: { key: ViewName; label: string }[] = [
@@ -125,14 +124,14 @@ function Sidebar({ current, onChange }: { current: ViewName; onChange: (v: ViewN
   );
 }
 
-// ========= Vista: Página principal (igual que antes) =========
+/* ========= Vista Principal ========= */
 function HomeView() {
   const k = MOCK_KPIS;
   return (
     <>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Página principal</h1>
+          <h1 className="text-2xl font-bold">Principal</h1>
           <p className="text-sm text-slate-500">Resumen analítico — {k.monthLabel}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -223,7 +222,7 @@ function HomeView() {
   );
 }
 
-// ========= Vista: Campañas (fetch real) =========
+/* ========= Vista: Campañas (fetch real) ========= */
 function CampaignsView({ storeId, onGoCoupons }: { storeId: string; onGoCoupons: () => void }) {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<Campaign[]>([]);
@@ -248,17 +247,17 @@ function CampaignsView({ storeId, onGoCoupons }: { storeId: string; onGoCoupons:
 
   return (
     <>
-     div className="mb-6 flex items-center justify-between">
-   <h1 className="text-2xl font-bold">Campañas</h1>
-   <div className="flex items-center gap-2">
-     <button onClick={onGoCoupons} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
-       Cupones
-     </button>
-     <button className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
-       Crear campaña
-     </button>
-   </div>
- </div>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Campañas</h1>
+        <div className="flex items-center gap-2">
+          <button onClick={onGoCoupons} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
+            Cupones
+          </button>
+          <button className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+            Crear campaña
+          </button>
+        </div>
+      </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-sm">
         <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
@@ -311,6 +310,8 @@ function CampaignsView({ storeId, onGoCoupons }: { storeId: string; onGoCoupons:
     </>
   );
 }
+
+/* ========= Vista: Cupones (layout inicial) ========= */
 function CouponsView({ storeId }: { storeId: string }) {
   return (
     <>
@@ -337,9 +338,9 @@ function CouponsView({ storeId }: { storeId: string }) {
   );
 }
 
-// ========= App principal =========
+/* ========= App principal ========= */
 export default function App() {
-  // vista actual: si en la URL viene ?view=campaigns, arrancamos ahí; si no, “home”
+  // vista actual: si en la URL viene ?view=..., arrancamos ahí; si no, “home”
   const initialView = (new URLSearchParams(window.location.search).get("view") as ViewName) || "home";
   const [view, setView] = useState<ViewName>(initialView);
 
@@ -351,7 +352,7 @@ export default function App() {
     window.history.replaceState(null, "", newUrl);
   }, [view]);
 
-  const storeId = useQueryParam("store_id") || ""; // 3739596 en tus pruebas
+  const storeId = useQueryParam("store_id") || "";
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -359,20 +360,23 @@ export default function App() {
         <Sidebar current={view} onChange={setView} />
         <main className="flex-1 p-4 sm:p-6">
           {view === "home" && <HomeView />}
-          {view === "campaigns" && (
-  storeId
-    ? <CampaignsView storeId={storeId} onGoCoupons={() => setView("coupons")} />
-    : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
-)}
 
-{view === "coupons" && (
-  storeId
-    ? <CouponsView storeId={storeId} />
-    : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
-)}
-          {view !== "home" && view !== "campaigns" && (
+          {view === "campaigns" && (
+            storeId
+              ? <CampaignsView storeId={storeId} onGoCoupons={() => setView("coupons")} />
+              : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
+          )}
+
+          {view === "coupons" && (
+            storeId
+              ? <CouponsView storeId={storeId} />
+              : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
+          )}
+
+          {view !== "home" && view !== "campaigns" && view !== "coupons" && (
             <div className="text-sm text-slate-500">Vista “{view}” en construcción.</div>
           )}
+
           <div className="mt-8 text-center text-xs text-slate-400">© {new Date().getFullYear()} Merci Descuentos</div>
         </main>
       </div>
