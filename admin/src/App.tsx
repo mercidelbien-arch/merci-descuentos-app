@@ -43,18 +43,6 @@ function Card({ title, value, subtitle, extra }: { title: string; value: React.R
     </div>
   );
 }
-function Badge({ children, color = "gray" }: { children: React.ReactNode; color?: "green"|"gray"|"red" }) {
-  const map = {
-    green: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    gray: "bg-slate-50 text-slate-700 border-slate-200",
-    red: "bg-rose-50 text-rose-700 border-rose-200",
-  } as const;
-  return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${map[color]}`}>
-      {children}
-    </span>
-  );
-}
 
 /* ========= Datos mock “Principal” ========= */
 const MOCK_KPIS = {
@@ -85,21 +73,43 @@ function useQueryParam(name: string) {
   const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
   return params.get(name);
 }
+type Campaign = {
+  id: string | number;
+  code: string;
+  name?: string;
+  status?: "active" | "paused" | "deleted" | string;
+  discount_type?: string;      // 'percent' | 'absolute'
+  discount_value?: string | number;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  created_at?: string;
+};
+
+/* ========= API helpers (acciones) ========= */
+async function apiPatch(url: string, body: any) {
+  const r = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`PATCH ${url} → ${r.status}`);
+  return r.json();
+}
+async function apiDelete(url: string) {
+  const r = await fetch(url, { method: "DELETE" });
+  if (!r.ok) throw new Error(`DELETE ${url} → ${r.status}`);
+  return r.json();
+}
+function statusBadge(s?: string) {
+  const base = "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium";
+  if (s === "active")  return <span className={`${base} bg-emerald-50 text-emerald-700 border border-emerald-200`}>Activo</span>;
+  if (s === "paused")  return <span className={`${base} bg-slate-100 text-slate-600 border border-slate-200`}>Pausado</span>;
+  if (s === "deleted") return <span className={`${base} bg-rose-50 text-rose-700 border border-rose-200`}>Eliminado</span>;
+  return <span className={`${base} bg-slate-50 text-slate-500 border border-slate-200`}>{s || "-"}</span>;
+}
 
 /* ========= Sidebar & router por estado ========= */
-type ViewName =
-  | "home"
-  | "campaigns"
-  | "coupons"
-  | "bogo"
-  | "category_percent"
-  | "category_fixed"
-  | "free_shipping"
-  | "categories"
-  | "redemptions"
-  | "clients"
-  | "logs";
-
+type ViewName = "home" | "campaigns" | "coupons" | "categories" | "redemptions" | "clients" | "logs";
 function Sidebar({ current, onChange }: { current: ViewName; onChange: (v: ViewName) => void }) {
   const items: { key: ViewName; label: string }[] = [
     { key: "home", label: "Principal" },
@@ -199,12 +209,21 @@ function HomeView() {
           <div className="mt-4 text-xs text-slate-500">Ayuda a entender si la app aporta valor adicional o se solapa con TN.</div>
         </Section>
 
+        <Section title="KPIs de ticket">
+          <div className="grid grid-cols-2 gap-3">
+            <Card title="Descuento prom. por pedido" value={<Peso amount={k.descuentoPromedioPorPedido} />} />
+            <Card title="% pedidos con cupón" value={`${Math.round(k.porcentajePedidosConCupon * 100)}%`} />
+            <Card title="Ticket con descuento" value={<Peso amount={k.ticketPromedioCon} />} />
+            <Card title="Ticket sin descuento" value={<Peso amount={k.ticketPromedioSin} />} />
+          </div>
+        </Section>
+
         <Section title="Topes y alertas">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div>
               <div className="text-sm font-medium text-slate-700 mb-2">Campañas con bajo margen</div>
               <ul className="space-y-2">
-                {k.topes.campañasConBajoMargen.map((c) => (
+                {MOCK_KPIS.topes.campañasConBajoMargen.map((c) => (
                   <li key={c.name} className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
                     <span>{c.name}</span>
                     <span className="text-sm">{Math.round(c.restante * 100)}% restante</span>
@@ -214,8 +233,8 @@ function HomeView() {
             </div>
             <div>
               <div className="text-sm font-medium text-slate-700 mb-2">Clientes al tope mensual</div>
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-4 text-rose-800">
-                <div className="text-3xl font-bold">{k.topes.clientesAlTope}</div>
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-4 text-rose-800">
+                <div className="text-3xl font-bold">{MOCK_KPIS.topes.clientesAlTope}</div>
                 <div className="text-sm mt-1">clientes alcanzaron su tope este mes</div>
               </div>
             </div>
@@ -226,126 +245,11 @@ function HomeView() {
   );
 }
 
-/* ========= Botón grande para tipos de campaña ========= */
-function CampaignTypeCard({
-  title,
-  desc,
-  onClick,
-  icon,
-}: {
-  title: string;
-  desc: string;
-  onClick: () => void;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="group h-36 w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-    >
-      <div className="flex items-start gap-3">
-        <div className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-blue-600">
-          {icon ?? (
-            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-              <path d="M21 7h-7l-2-2H3a1 1 0 0 0-1 1v5a2 2 0 1 0 0 4v5a1 1 0 0 0 1 1h9l2-2h7a1 1 0 0 0 1-1v-4a2 2 0 1 1 0-4V8a1 1 0 0 0-1-1zM6.5 13a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z" />
-            </svg>
-          )}
-        </div>
-        <div className="flex-1">
-          <div className="text-base font-semibold text-slate-900">{title}</div>
-          <div className="mt-1 text-sm text-slate-600">{desc}</div>
-          <div className="mt-3 text-sm font-medium text-blue-700 opacity-0 transition group-hover:opacity-100">
-            Entrar →
-          </div>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-/* ========= Vista: Campañas (HUB con botones grandes) ========= */
-function CampaignsView({
-  storeId,
-  onNavigate,
-}: {
-  storeId: string;
-  onNavigate: (v: ViewName) => void;
-}) {
-  return (
-    <>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Campañas</h1>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <CampaignTypeCard
-          title="Cupones"
-          desc="Códigos de descuento en % o monto fijo."
-          onClick={() => onNavigate("coupons")}
-          icon={
-            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
-              <path d="M21 7h-7l-2-2H3a1 1 0 0 0-1 1v5a2 2 0 1 0 0 4v5a1 1 0 0 0 1 1h9l2-2h7a1 1 0 0 0 1-1v-4a2 2 0 1 1 0-4V8a1 1 0 0 0-1-1zM6.5 13a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z" />
-            </svg>
-          }
-        />
-        <CampaignTypeCard
-          title="2×1 (BOGO)"
-          desc="Lleva 2, paga 1. Ideal para combos."
-          onClick={() => onNavigate("bogo")}
-        />
-        <CampaignTypeCard
-          title="% por categoría"
-          desc="Descuento por rubros específicos."
-          onClick={() => onNavigate("category_percent")}
-        />
-        <CampaignTypeCard
-          title="Monto fijo por categoría"
-          desc="Descuento fijo para categorías."
-          onClick={() => onNavigate("category_fixed")}
-        />
-        <CampaignTypeCard
-          title="Envío gratis"
-          desc="Promos de envío sin costo."
-          onClick={() => onNavigate("free_shipping")}
-        />
-      </div>
-
-      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-        Elegí un tipo de campaña. <b>Cupones</b> te lleva al listado actual; los demás están “en construcción”.
-        {storeId ? null : (
-          <span className="ml-2 text-rose-600">
-            • Falta <code>store_id</code> en la URL para operar.
-          </span>
-        )}
-      </div>
-    </>
-  );
-}
-
-/* ========= Tipos ========= */
-type CampaignRow = {
-  id: string | number;
-  code: string;
-  name?: string;
-  status?: string;
-  discount_type?: string;
-  discount_value?: string | number;
-  valid_from?: string | null;
-  valid_until?: string | null;
-  created_at?: string;
-};
-
-/* ========= Vista: Cupones (mejorada) ========= */
-function CouponsView({ storeId }: { storeId: string }) {
+/* ========= Vista: Campañas (tabla simple + CTA cupones) ========= */
+function CampaignsView({ storeId, onGoCoupons }: { storeId: string; onGoCoupons: () => void }) {
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<CampaignRow[]>([]);
+  const [rows, setRows] = useState<Campaign[]>([]);
   const [error, setError] = useState<string | null>(null);
-
-  // filtros
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState<"" | "active" | "paused" | "expired">("");
-  const [from, setFrom] = useState<string>("");
-  const [to, setTo] = useState<string>("");
 
   const url = useMemo(() => `/api/campaigns?store_id=${encodeURIComponent(storeId)}`, [storeId]);
 
@@ -364,56 +268,112 @@ function CouponsView({ storeId }: { storeId: string }) {
     return () => { cancel = true; };
   }, [url]);
 
-  const filtered = useMemo(() => {
-    const norm = (s: unknown) => String(s ?? "").toLowerCase();
-    const inRange = (d: string | null | undefined) => {
-      if (!d) return true;
-      const dv = d.slice(0, 10);
-      if (from && dv < from) return false;
-      if (to && dv > to) return false;
-      return true;
-    };
-    const isExpired = (row: CampaignRow) => {
-      const today = new Date().toISOString().slice(0,10);
-      return !!row.valid_until && today > row.valid_until;
-    };
+  return (
+    <>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Campañas</h1>
+        <div className="flex items-center gap-2">
+          <button onClick={onGoCoupons} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
+            Cupones
+          </button>
+          <button className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+            Crear campaña
+          </button>
+        </div>
+      </div>
 
-    return rows.filter(r => {
-      if (q) {
-        const hit = norm(r.code).includes(q.toLowerCase()) || norm(r.name).includes(q.toLowerCase());
-        if (!hit) return false;
-      }
-      if (status) {
-        if (status === "expired") {
-          if (!isExpired(r)) return false;
-        } else {
-          if ((r.status || "").toLowerCase() !== status) return false;
-        }
-      }
-      if (!inRange(r.valid_from) || !inRange(r.valid_until)) return false;
-      return true;
-    });
-  }, [rows, q, status, from, to]);
+      <div className="rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-sm">
+        <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
+          {loading ? "Cargando…" : `${rows.length} campañas encontradas`}
+          {error && <span className="ml-2 text-rose-600">• Error: {error}</span>}
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600">
+              <tr>
+                <th className="px-4 py-2 text-left">Código</th>
+                <th className="px-4 py-2 text-left">Nombre</th>
+                <th className="px-4 py-2 text-left">Tipo</th>
+                <th className="px-4 py-2 text-left">Valor</th>
+                <th className="px-4 py-2 text-left">Estado</th>
+                <th className="px-4 py-2 text-left">Vigencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!loading && rows.length === 0 && (
+                <tr><td className="px-4 py-4 text-slate-500" colSpan={6}>No hay campañas.</td></tr>
+              )}
+              {rows.map((c) => {
+                const tipo = c.discount_type === "percent" ? "Porcentaje" : c.discount_type === "absolute" ? "Monto fijo" : (c as any).type || "-";
+                const valor = typeof c.discount_value !== "undefined"
+                  ? c.discount_type === "percent"
+                    ? `${Number(c.discount_value)}%`
+                    : `$ ${Number(c.discount_value).toLocaleString("es-AR")}`
+                  : (c as any).value ?? "-";
+                const vigencia = [
+                  c.valid_from ? new Date(c.valid_from).toLocaleDateString("es-AR") : null,
+                  c.valid_until ? new Date(c.valid_until).toLocaleDateString("es-AR") : null,
+                ].filter(Boolean).join(" → ");
 
-  const fmtDate = (s?: string | null) => (s ? new Date(s).toLocaleDateString("es-AR") : "-");
-  const fmtValor = (row: CampaignRow) => {
-    if (typeof row.discount_value !== "undefined" && row.discount_type) {
-      return row.discount_type === "percent"
-        ? `${Number(row.discount_value)}%`
-        : `$ ${Number(row.discount_value).toLocaleString("es-AR")}`;
+                return (
+                  <tr key={String(c.id)} className="border-t border-slate-100">
+                    <td className="px-4 py-2 font-mono">{c.code}</td>
+                    <td className="px-4 py-2">{c.name || "-"}</td>
+                    <td className="px-4 py-2">{tipo}</td>
+                    <td className="px-4 py-2">{valor}</td>
+                    <td className="px-4 py-2">{statusBadge(c.status)}</td>
+                    <td className="px-4 py-2">{vigencia || "-"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ========= Vista: Cupones (con Pausar/Reanudar + Eliminar) ========= */
+function CouponsView({ storeId }: { storeId: string }) {
+  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<Campaign[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const url = useMemo(() => `/api/campaigns?store_id=${encodeURIComponent(storeId)}`, [storeId]);
+
+  useEffect(() => {
+    let cancel = false;
+    setLoading(true);
+    setError(null);
+    fetch(url)
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (!cancel) setRows(Array.isArray(data) ? data : []);
+      })
+      .catch((e) => !cancel && setError(String(e)))
+      .finally(() => !cancel && setLoading(false));
+    return () => { cancel = true; };
+  }, [url]);
+
+  const onToggle = async (c: Campaign) => {
+    try {
+      const next = c.status === "active" ? "paused" : "active";
+      await apiPatch(`/api/campaigns/${c.id}/status`, { status: next });
+      setRows(prev => prev.map(x => x.id === c.id ? { ...x, status: next } : x));
+    } catch (e: any) {
+      alert(`Error al actualizar estado: ${e.message || e}`);
     }
-    return "-";
   };
-  const statusBadge = (row: CampaignRow) => {
-    const today = new Date().toISOString().slice(0,10);
-    if (row.valid_until && today > row.valid_until) return <Badge color="red">Vencido</Badge>;
-    const st = (row.status || "").toLowerCase();
-    if (st === "active") return <Badge color="green">Activo</Badge>;
-    if (st === "paused") return <Badge color="gray">Pausado</Badge>;
-    return <Badge color="gray">{row.status || "-"}</Badge>;
-  };
-  const copyCode = async (code: string) => {
-    try { await navigator.clipboard.writeText(code); } catch {}
+  const onDelete = async (c: Campaign) => {
+    try {
+      if (!confirm(`¿Eliminar el cupón/campaña "${c.code}"?`)) return;
+      await apiDelete(`/api/campaigns/${c.id}`);
+      setRows(prev => prev.filter(x => x.id !== c.id));
+    } catch (e: any) {
+      alert(`Error al eliminar: ${e.message || e}`);
+    }
   };
 
   return (
@@ -430,62 +390,12 @@ function CouponsView({ storeId }: { storeId: string }) {
         </div>
       </div>
 
-      {/* Filtros */}
-      <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-12">
-        <div className="md:col-span-4">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar por código o nombre…"
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-          />
-        </div>
-        <div className="md:col-span-3">
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as any)}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-          >
-            <option value="">Estado: todos</option>
-            <option value="active">Activo</option>
-            <option value="paused">Pausado</option>
-            <option value="expired">Vencido</option>
-          </select>
-        </div>
-        <div className="md:col-span-2">
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-            placeholder="Desde"
-          />
-        </div>
-        <div className="md:col-span-2">
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-            placeholder="Hasta"
-          />
-        </div>
-        <div className="md:col-span-1">
-          <button
-            onClick={() => { setQ(""); setStatus(""); setFrom(""); setTo(""); }}
-            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50"
-          >
-            Limpiar
-          </button>
-        </div>
-      </div>
-
-      {/* Tabla */}
       <div className="rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-sm">
         <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
-          {loading ? "Cargando…" : `${filtered.length} cupones mostrados`}
+          {loading ? "Cargando…" : `${rows.length} cupones mostrados`}
           {error && <span className="ml-2 text-rose-600">• Error: {error}</span>}
         </div>
+
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-slate-600">
@@ -496,27 +406,51 @@ function CouponsView({ storeId }: { storeId: string }) {
                 <th className="px-4 py-2 text-left">Valor</th>
                 <th className="px-4 py-2 text-left">Estado</th>
                 <th className="px-4 py-2 text-left">Vigencia</th>
+                <th className="px-4 py-2 text-left">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {!loading && filtered.length === 0 && (
-                <tr><td className="px-4 py-6 text-slate-500" colSpan={6}>No hay cupones según los filtros.</td></tr>
+              {!loading && rows.length === 0 && (
+                <tr><td className="px-4 py-4 text-slate-500" colSpan={7}>No hay cupones.</td></tr>
               )}
-              {filtered.map((c) => {
-                const tipo = c.discount_type === "percent" ? "Porcentaje" : c.discount_type === "absolute" ? "Monto fijo" : "-";
-                const vigencia = [fmtDate(c.valid_from || null), fmtDate(c.valid_until || null)].filter(x => x !== "-").join(" → ");
+              {rows.map((c) => {
+                const tipo = c.discount_type === "percent" ? "Porcentaje" : c.discount_type === "absolute" ? "Monto fijo" : (c as any).type || "-";
+                const valor = typeof c.discount_value !== "undefined"
+                  ? c.discount_type === "percent"
+                    ? `${Number(c.discount_value)}%`
+                    : `$ ${Number(c.discount_value).toLocaleString("es-AR")}`
+                  : (c as any).value ?? "-";
+                const vigencia = [
+                  c.valid_from ? new Date(c.valid_from).toLocaleDateString("es-AR") : null,
+                  c.valid_until ? new Date(c.valid_until).toLocaleDateString("es-AR") : null,
+                ].filter(Boolean).join(" → ");
+
                 return (
                   <tr key={String(c.id)} className="border-t border-slate-100">
-                    <td className="px-4 py-2 font-mono">
-                      <button onClick={() => copyCode(c.code)} title="Copiar código" className="underline decoration-dotted">
-                        {c.code}
-                      </button>
-                    </td>
+                    <td className="px-4 py-2 font-mono">{c.code}</td>
                     <td className="px-4 py-2">{c.name || "-"}</td>
                     <td className="px-4 py-2">{tipo}</td>
-                    <td className="px-4 py-2">{fmtValor(c)}</td>
-                    <td className="px-4 py-2">{statusBadge(c)}</td>
+                    <td className="px-4 py-2">{valor}</td>
+                    <td className="px-4 py-2">{statusBadge(c.status)}</td>
                     <td className="px-4 py-2">{vigencia || "-"}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => onToggle(c)}
+                          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs hover:bg-slate-50"
+                          title={c.status === "active" ? "Pausar" : "Reanudar"}
+                        >
+                          {c.status === "active" ? "Pausar" : "Reanudar"}
+                        </button>
+                        <button
+                          onClick={() => onDelete(c)}
+                          className="rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-700"
+                          title="Eliminar"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -530,11 +464,9 @@ function CouponsView({ storeId }: { storeId: string }) {
 
 /* ========= App principal ========= */
 export default function App() {
-  // vista actual: si en la URL viene ?view=..., arrancamos ahí; si no, “home”
   const initialView = (new URLSearchParams(window.location.search).get("view") as ViewName) || "home";
   const [view, setView] = useState<ViewName>(initialView);
 
-  // mantener sincronizado el parámetro ?view=...
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     params.set("view", view);
@@ -553,7 +485,7 @@ export default function App() {
 
           {view === "campaigns" && (
             storeId
-              ? <CampaignsView storeId={storeId} onNavigate={(v) => setView(v)} />
+              ? <CampaignsView storeId={storeId} onGoCoupons={() => setView("coupons")} />
               : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
           )}
 

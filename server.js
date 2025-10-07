@@ -496,6 +496,49 @@ app.get('/api/campaigns', async (req, res) => {
   }
 });
 
+// ---- Cambiar estado (active | paused) ----
+app.patch('/api/campaigns/:id/status', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body || {};
+    const allowed = new Set(['active', 'paused']);
+    if (!allowed.has(status)) {
+      return res.status(400).json({ ok: false, error: 'Estado inválido (use active | paused)' });
+    }
+    const q = await pool.query(
+      `UPDATE campaigns
+          SET status = $1, updated_at = now()
+        WHERE id = $2
+      RETURNING id, store_id, code, name, status, updated_at`,
+      [status, id]
+    );
+    if (q.rowCount === 0) return res.status(404).json({ ok: false, error: 'Campaña no encontrada' });
+    res.json({ ok: true, campaign: q.rows[0] });
+  } catch (e) {
+    console.error('PATCH /api/campaigns/:id/status error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ---- Eliminar (soft delete: status = 'deleted') ----
+app.delete('/api/campaigns/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const q = await pool.query(
+      `UPDATE campaigns
+          SET status = 'deleted', updated_at = now()
+        WHERE id = $1
+      RETURNING id`,
+      [id]
+    );
+    if (q.rowCount === 0) return res.status(404).json({ ok: false, error: 'Campaña no encontrada' });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('DELETE /api/campaigns/:id error:', e);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.post('/api/campaigns', async (req, res) => {
   try {
     const b = req.body || {};
