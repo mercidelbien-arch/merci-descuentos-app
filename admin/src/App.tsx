@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   ResponsiveContainer, BarChart, Bar, Legend,
@@ -107,7 +107,7 @@ type Campaign = {
   code: string;
   name?: string;
   status?: "active" | "paused" | "deleted" | string;
-  discount_type?: string;      // 'percent' | 'absolute'
+  discount_type?: string;
   discount_value?: string | number;
   valid_from?: string | null;
   valid_until?: string | null;
@@ -138,23 +138,11 @@ function statusBadge(s?: string) {
 }
 
 /* ========= Sidebar & router por estado ========= */
-type ViewName =
-  | "home"
-  | "campaigns"
-  | "coupons"
-  | "couponCreate"
-  | "couponEdit"
-  | "categories"
-  | "redemptions"
-  | "clients"
-  | "logs";
-
+type ViewName = "home" | "campaigns" | "coupons" | "categories" | "redemptions" | "clients" | "logs";
 function Sidebar({ current, onChange }: { current: ViewName; onChange: (v: ViewName) => void }) {
   const items: { key: ViewName; label: string }[] = [
     { key: "home", label: "Principal" },
     { key: "campaigns", label: "Campañas" },
-    { key: "coupons", label: "Cupones" },
-    // las vistas de formulario no aparecen en el menú
     { key: "categories", label: "Categorías" },
     { key: "redemptions", label: "Redenciones" },
     { key: "clients", label: "Clientes" },
@@ -286,7 +274,7 @@ function HomeView() {
   );
 }
 
-/* ========= Vista: Campañas (solo cards con iconos) ========= */
+/* ========= Vista: Campañas ========= */
 function CampaignsView({ onGoCoupons }: { onGoCoupons: () => void }) {
   return (
     <>
@@ -297,7 +285,6 @@ function CampaignsView({ onGoCoupons }: { onGoCoupons: () => void }) {
         </button>
       </div>
 
-      {/* Cards/tiles */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <button
           onClick={onGoCoupons}
@@ -338,23 +325,16 @@ function CampaignsView({ onGoCoupons }: { onGoCoupons: () => void }) {
   );
 }
 
-/* ========= Vista: Cupones (lista) ========= */
-function CouponsView({
-  storeId,
-  onCreate,
-  onEdit,
-}: {
-  storeId: string;
-  onCreate: () => void;
-  onEdit: (id: string) => void;
-}) {
+/* ========= Vista: Cupones ========= */
+function CouponsView({ storeId }: { storeId: string }) {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<Campaign[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [showEditor, setShowEditor] = useState(false);
 
   const url = useMemo(() => `/api/campaigns?store_id=${encodeURIComponent(storeId)}`, [storeId]);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     let cancel = false;
     setLoading(true);
     setError(null);
@@ -368,6 +348,11 @@ function CouponsView({
       .finally(() => !cancel && setLoading(false));
     return () => { cancel = true; };
   }, [url]);
+
+  useEffect(() => {
+    const cancel = load();
+    return cancel;
+  }, [load]);
 
   const onToggle = async (c: Campaign) => {
     try {
@@ -397,7 +382,7 @@ function CouponsView({
             Instalar/Verificar script
           </button>
           <button
-            onClick={onCreate}
+            onClick={() => setShowEditor(true)}
             className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
           >
             Crear cupón
@@ -405,81 +390,84 @@ function CouponsView({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-sm">
-        <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
-          {loading ? "Cargando…" : `${rows.length} cupones mostrados`}
-          {error && <span className="ml-2 text-rose-600">• Error: {error}</span>}
-        </div>
+      {showEditor ? (
+        <CouponEditor
+          onClose={() => setShowEditor(false)}
+          onSaved={() => {
+            setShowEditor(false);
+            load();
+          }}
+        />
+      ) : (
+        <div className="rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-sm">
+          <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
+            {loading ? "Cargando…" : `${rows.length} cupones mostrados`}
+            {error && <span className="ml-2 text-rose-600">• Error: {error}</span>}
+          </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="px-4 py-2 text-left">Código</th>
-                <th className="px-4 py-2 text-left">Nombre</th>
-                <th className="px-4 py-2 text-left">Tipo</th>
-                <th className="px-4 py-2 text-left">Valor</th>
-                <th className="px-4 py-2 text-left">Estado</th>
-                <th className="px-4 py-2 text-left">Vigencia</th>
-                <th className="px-4 py-2 text-left">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!loading && rows.length === 0 && (
-                <tr><td className="px-4 py-4 text-slate-500" colSpan={7}>No hay cupones.</td></tr>
-              )}
-              {rows.map((c) => {
-                const tipo = c.discount_type === "percent" ? "Porcentaje" : c.discount_type === "absolute" ? "Monto fijo" : (c as any).type || "-";
-                const valor = typeof c.discount_value !== "undefined"
-                  ? c.discount_type === "percent"
-                    ? `${Number(c.discount_value)}%`
-                    : `$ ${Number(c.discount_value).toLocaleString("es-AR")}`
-                  : (c as any).value ?? "-";
-                const vigencia = [
-                  c.valid_from ? new Date(c.valid_from).toLocaleDateString("es-AR") : null,
-                  c.valid_until ? new Date(c.valid_until).toLocaleDateString("es-AR") : null,
-                ].filter(Boolean).join(" → ");
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-slate-600">
+                <tr>
+                  <th className="px-4 py-2 text-left">Código</th>
+                  <th className="px-4 py-2 text-left">Nombre</th>
+                  <th className="px-4 py-2 text-left">Tipo</th>
+                  <th className="px-4 py-2 text-left">Valor</th>
+                  <th className="px-4 py-2 text-left">Estado</th>
+                  <th className="px-4 py-2 text-left">Vigencia</th>
+                  <th className="px-4 py-2 text-left">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!loading && rows.length === 0 && (
+                  <tr><td className="px-4 py-4 text-slate-500" colSpan={7}>No hay cupones.</td></tr>
+                )}
+                {rows.map((c) => {
+                  const tipo = c.discount_type === "percent" ? "Porcentaje" : c.discount_type === "absolute" ? "Monto fijo" : (c as any).type || "-";
+                  const valor = typeof c.discount_value !== "undefined"
+                    ? c.discount_type === "percent"
+                      ? `${Number(c.discount_value)}%`
+                      : `$ ${Number(c.discount_value).toLocaleString("es-AR")}`
+                    : (c as any).value ?? "-";
+                  const vigencia = [
+                    c.valid_from ? new Date(c.valid_from).toLocaleDateString("es-AR") : null,
+                    c.valid_until ? new Date(c.valid_until).toLocaleDateString("es-AR") : null,
+                  ].filter(Boolean).join(" → ");
 
-                return (
-                  <tr key={String(c.id)} className="border-t border-slate-100">
-                    <td className="px-4 py-2 font-mono">{c.code}</td>
-                    <td className="px-4 py-2">{c.name || "-"}</td>
-                    <td className="px-4 py-2">{tipo}</td>
-                    <td className="px-4 py-2">{valor}</td>
-                    <td className="px-4 py-2">{statusBadge(c.status)}</td>
-                    <td className="px-4 py-2">{vigencia || "-"}</td>
-                    <td className="px-4 py-2">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => onEdit(String(c.id))}
-                          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs hover:bg-slate-50"
-                          title="Editar"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          onClick={() => onToggle(c)}
-                          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs hover:bg-slate-50"
-                          title={c.status === "active" ? "Pausar" : "Reanudar"}
-                        >
-                          {c.status === "active" ? "Pausar" : "Reanudar"}
-                        </button>
-                        <button
-                          onClick={() => onDelete(c)}
-                          className="rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-700"
-                          title="Eliminar"
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                  return (
+                    <tr key={String(c.id)} className="border-t border-slate-100">
+                      <td className="px-4 py-2 font-mono">{c.code}</td>
+                      <td className="px-4 py-2">{c.name || "-"}</td>
+                      <td className="px-4 py-2">{tipo}</td>
+                      <td className="px-4 py-2">{valor}</td>
+                      <td className="px-4 py-2">{statusBadge(c.status)}</td>
+                      <td className="px-4 py-2">{vigencia || "-"}</td>
+                      <td className="px-4 py-2">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => onToggle(c)}
+                            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs hover:bg-slate-50"
+                            title={c.status === "active" ? "Pausar" : "Reanudar"}
+                          >
+                            {c.status === "active" ? "Pausar" : "Reanudar"}
+                          </button>
+                          <button
+                            onClick={() => onDelete(c)}
+                            className="rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-700"
+                            title="Eliminar"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 }
@@ -488,7 +476,6 @@ function CouponsView({
 export default function App() {
   const initialView = (new URLSearchParams(window.location.search).get("view") as ViewName) || "home";
   const [view, setView] = useState<ViewName>(initialView);
-  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -498,16 +485,6 @@ export default function App() {
   }, [view]);
 
   const storeId = useQueryParam("store_id") || "";
-
-  const openCreate = () => {
-    setEditingId(null);
-    setView("couponCreate");
-  };
-  const openEdit = (id: string) => {
-    setEditingId(id);
-    setView("couponEdit");
-  };
-  const goBackToList = () => setView("coupons");
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -520,30 +497,11 @@ export default function App() {
 
           {view === "coupons" && (
             storeId
-              ? <CouponsView storeId={storeId} onCreate={openCreate} onEdit={openEdit} />
+              ? <CouponsView storeId={storeId} />
               : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
           )}
 
-          {(view === "couponCreate" || view === "couponEdit") && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={goBackToList}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
-                >
-                  ← Volver a cupones
-                </button>
-                <div className="text-sm text-slate-500">
-                  {view === "couponCreate" ? "Creando nuevo cupón" : `Editando cupón #${editingId ?? "-"}`}
-                </div>
-              </div>
-              {/* El editor no requiere props obligatorias; si después
-                  querés prefijar store_id o data, lo pasamos por props */}
-              <CouponEditor />
-            </div>
-          )}
-
-          {!["home","campaigns","coupons","couponCreate","couponEdit"].includes(view) && (
+          {view !== "home" && view !== "campaigns" && view !== "coupons" && (
             <div className="text-sm text-slate-500">Vista “{view}” en construcción.</div>
           )}
 
