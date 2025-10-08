@@ -326,33 +326,62 @@ function CampaignsView({ onGoCoupons }: { onGoCoupons: () => void }) {
 }
 
 /* ========= Vista: Cupones ========= */
-function CouponsView({ storeId }: { storeId: string }) {
+function CouponsView({
+  storeId,
+}: {
+  storeId: string;
+}) {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<Campaign[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [showEditor, setShowEditor] = useState(false);
 
-  const url = useMemo(() => `/api/campaigns?store_id=${encodeURIComponent(storeId)}`, [storeId]);
+  // --- estado del editor ligado a la URL ---
+  const readEditorFromUrl = () => {
+    const p = new URLSearchParams(window.location.search);
+    const ed = p.get("editor"); // "new" | "<id>" | null
+    return ed;
+  };
+  const [editor, setEditor] = useState<string | null>(readEditorFromUrl());
 
-  const load = useCallback(() => {
-    let cancel = false;
+  const openEditor = (id: string) => {
+    const p = new URLSearchParams(window.location.search);
+    p.set("editor", id);
+    window.history.pushState(null, "", `${window.location.pathname}?${p.toString()}`);
+    setEditor(id);
+  };
+  const closeEditor = () => {
+    const p = new URLSearchParams(window.location.search);
+    p.delete("editor");
+    window.history.pushState(null, "", `${window.location.pathname}?${p.toString()}`);
+    setEditor(null);
+  };
+
+  useEffect(() => {
+    const onPop = () => setEditor(readEditorFromUrl());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // ---------- fetch ----------
+  const url = useMemo(
+    () => `/api/campaigns?store_id=${encodeURIComponent(storeId)}`,
+    [storeId]
+  );
+
+  const load = () => {
     setLoading(true);
     setError(null);
     fetch(url)
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
-        if (!cancel) setRows(Array.isArray(data) ? data : []);
+        setRows(Array.isArray(data) ? data : []);
       })
-      .catch((e) => !cancel && setError(String(e)))
-      .finally(() => !cancel && setLoading(false));
-    return () => { cancel = true; };
-  }, [url]);
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+  };
 
-  useEffect(() => {
-    const cancel = load();
-    return cancel;
-  }, [load]);
+  useEffect(() => { load(); }, [url]);
 
   const onToggle = async (c: Campaign) => {
     try {
@@ -373,104 +402,122 @@ function CouponsView({ storeId }: { storeId: string }) {
     }
   };
 
+  // cuando el editor guarda, refrescamos lista y cerramos
+  const handleSaved = () => { load(); closeEditor(); };
+
   return (
     <>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Cupones</h1>
-        <div className="flex items-center gap-2">
-          <button className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
-            Instalar/Verificar script
-          </button>
-          <button
-            onClick={() => setShowEditor(true)}
-            className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
-          >
-            Crear cupón
-          </button>
-        </div>
-      </div>
+      {/* LISTA */}
+      {!editor && (
+        <>
+          <div className="mb-6 flex items-center justify-between">
+            <h1 className="text-2xl font-bold">Cupones</h1>
+            <div className="flex items-center gap-2">
+              <button className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
+                Instalar/Verificar script
+              </button>
+              <button
+                onClick={() => openEditor("new")}
+                className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+              >
+                Crear cupón
+              </button>
+            </div>
+          </div>
 
-      {showEditor ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-sm">
+            <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
+              {loading ? "Cargando…" : `${rows.length} cupones mostrados`}
+              {error && <span className="ml-2 text-rose-600">• Error: {error}</span>}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-slate-600">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Código</th>
+                    <th className="px-4 py-2 text-left">Tipo</th>
+                    <th className="px-4 py-2 text-left">Valor</th>
+                    <th className="px-4 py-2 text-left">Estado</th>
+                    <th className="px-4 py-2 text-left">Vigencia</th>
+                    <th className="px-4 py-2 text-left">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!loading && rows.length === 0 && (
+                    <tr><td className="px-4 py-4 text-slate-500" colSpan={6}>No hay cupones.</td></tr>
+                  )}
+                  {rows.map((c) => {
+                    const tipo = c.discount_type === "percent"
+                      ? "Porcentaje"
+                      : c.discount_type === "absolute"
+                        ? "Monto fijo"
+                        : (c as any).type || "-";
+                    const valor = typeof c.discount_value !== "undefined"
+                      ? c.discount_type === "percent"
+                        ? `${Number(c.discount_value)}%`
+                        : `$ ${Number(c.discount_value).toLocaleString("es-AR")}`
+                      : (c as any).value ?? "-";
+                    const vigencia = [
+                      c.valid_from ? new Date(c.valid_from).toLocaleDateString("es-AR") : null,
+                      c.valid_until ? new Date(c.valid_until).toLocaleDateString("es-AR") : null,
+                    ].filter(Boolean).join(" → ");
+
+                    return (
+                      <tr key={String(c.id)} className="border-t border-slate-100">
+                        <td className="px-4 py-2 font-mono">{c.code}</td>
+                        <td className="px-4 py-2">{tipo}</td>
+                        <td className="px-4 py-2">{valor}</td>
+                        <td className="px-4 py-2">{statusBadge(c.status)}</td>
+                        <td className="px-4 py-2">{vigencia || "-"}</td>
+                        <td className="px-4 py-2">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => openEditor(String(c.id))}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs hover:bg-slate-50"
+                              title="Editar"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => onToggle(c)}
+                              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs hover:bg-slate-50"
+                              title={c.status === "active" ? "Pausar" : "Reanudar"}
+                            >
+                              {c.status === "active" ? "Pausar" : "Reanudar"}
+                            </button>
+                            <button
+                              onClick={() => onDelete(c)}
+                              className="rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-700"
+                              title="Eliminar"
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* EDITOR */}
+      {editor && (
         <CouponEditor
-          onClose={() => setShowEditor(false)}
-          onSaved={() => {
-            setShowEditor(false);
-            load();
-          }}
+          storeId={storeId}
+          couponId={editor === "new" ? null : editor}
+          onClose={closeEditor}
+          onSaved={handleSaved}
         />
-      ) : (
-        <div className="rounded-2xl border border-slate-200 bg-white p-0 overflow-hidden shadow-sm">
-          <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
-            {loading ? "Cargando…" : `${rows.length} cupones mostrados`}
-            {error && <span className="ml-2 text-rose-600">• Error: {error}</span>}
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-slate-600">
-                <tr>
-                  <th className="px-4 py-2 text-left">Código</th>
-                  <th className="px-4 py-2 text-left">Nombre</th>
-                  <th className="px-4 py-2 text-left">Tipo</th>
-                  <th className="px-4 py-2 text-left">Valor</th>
-                  <th className="px-4 py-2 text-left">Estado</th>
-                  <th className="px-4 py-2 text-left">Vigencia</th>
-                  <th className="px-4 py-2 text-left">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!loading && rows.length === 0 && (
-                  <tr><td className="px-4 py-4 text-slate-500" colSpan={7}>No hay cupones.</td></tr>
-                )}
-                {rows.map((c) => {
-                  const tipo = c.discount_type === "percent" ? "Porcentaje" : c.discount_type === "absolute" ? "Monto fijo" : (c as any).type || "-";
-                  const valor = typeof c.discount_value !== "undefined"
-                    ? c.discount_type === "percent"
-                      ? `${Number(c.discount_value)}%`
-                      : `$ ${Number(c.discount_value).toLocaleString("es-AR")}`
-                    : (c as any).value ?? "-";
-                  const vigencia = [
-                    c.valid_from ? new Date(c.valid_from).toLocaleDateString("es-AR") : null,
-                    c.valid_until ? new Date(c.valid_until).toLocaleDateString("es-AR") : null,
-                  ].filter(Boolean).join(" → ");
-
-                  return (
-                    <tr key={String(c.id)} className="border-t border-slate-100">
-                      <td className="px-4 py-2 font-mono">{c.code}</td>
-                      <td className="px-4 py-2">{c.name || "-"}</td>
-                      <td className="px-4 py-2">{tipo}</td>
-                      <td className="px-4 py-2">{valor}</td>
-                      <td className="px-4 py-2">{statusBadge(c.status)}</td>
-                      <td className="px-4 py-2">{vigencia || "-"}</td>
-                      <td className="px-4 py-2">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => onToggle(c)}
-                            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs hover:bg-slate-50"
-                            title={c.status === "active" ? "Pausar" : "Reanudar"}
-                          >
-                            {c.status === "active" ? "Pausar" : "Reanudar"}
-                          </button>
-                          <button
-                            onClick={() => onDelete(c)}
-                            className="rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-rose-700"
-                            title="Eliminar"
-                          >
-                            Eliminar
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
       )}
     </>
   );
 }
+
 
 /* ========= App principal ========= */
 export default function App() {
