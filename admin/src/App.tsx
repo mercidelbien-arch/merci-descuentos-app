@@ -3,6 +3,8 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip,
   ResponsiveContainer, BarChart, Bar, Legend,
 } from "recharts";
+import CouponEditor from "./CouponEditor";
+
 /* ===== Iconitos simples ===== */
 const IconTag = () => (
   <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
@@ -136,11 +138,23 @@ function statusBadge(s?: string) {
 }
 
 /* ========= Sidebar & router por estado ========= */
-type ViewName = "home" | "campaigns" | "coupons" | "categories" | "redemptions" | "clients" | "logs";
+type ViewName =
+  | "home"
+  | "campaigns"
+  | "coupons"
+  | "couponCreate"
+  | "couponEdit"
+  | "categories"
+  | "redemptions"
+  | "clients"
+  | "logs";
+
 function Sidebar({ current, onChange }: { current: ViewName; onChange: (v: ViewName) => void }) {
   const items: { key: ViewName; label: string }[] = [
     { key: "home", label: "Principal" },
     { key: "campaigns", label: "Campañas" },
+    { key: "coupons", label: "Cupones" },
+    // las vistas de formulario no aparecen en el menú
     { key: "categories", label: "Categorías" },
     { key: "redemptions", label: "Redenciones" },
     { key: "clients", label: "Clientes" },
@@ -324,8 +338,16 @@ function CampaignsView({ onGoCoupons }: { onGoCoupons: () => void }) {
   );
 }
 
-/* ========= Vista: Cupones (con Pausar/Reanudar + Eliminar) ========= */
-function CouponsView({ storeId }: { storeId: string }) {
+/* ========= Vista: Cupones (lista) ========= */
+function CouponsView({
+  storeId,
+  onCreate,
+  onEdit,
+}: {
+  storeId: string;
+  onCreate: () => void;
+  onEdit: (id: string) => void;
+}) {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<Campaign[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -374,7 +396,10 @@ function CouponsView({ storeId }: { storeId: string }) {
           <button className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm hover:bg-slate-50">
             Instalar/Verificar script
           </button>
-          <button className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+          <button
+            onClick={onCreate}
+            className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+          >
             Crear cupón
           </button>
         </div>
@@ -426,6 +451,13 @@ function CouponsView({ storeId }: { storeId: string }) {
                     <td className="px-4 py-2">
                       <div className="flex gap-2">
                         <button
+                          onClick={() => onEdit(String(c.id))}
+                          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs hover:bg-slate-50"
+                          title="Editar"
+                        >
+                          Editar
+                        </button>
+                        <button
                           onClick={() => onToggle(c)}
                           className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs hover:bg-slate-50"
                           title={c.status === "active" ? "Pausar" : "Reanudar"}
@@ -456,6 +488,7 @@ function CouponsView({ storeId }: { storeId: string }) {
 export default function App() {
   const initialView = (new URLSearchParams(window.location.search).get("view") as ViewName) || "home";
   const [view, setView] = useState<ViewName>(initialView);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -465,6 +498,16 @@ export default function App() {
   }, [view]);
 
   const storeId = useQueryParam("store_id") || "";
+
+  const openCreate = () => {
+    setEditingId(null);
+    setView("couponCreate");
+  };
+  const openEdit = (id: string) => {
+    setEditingId(id);
+    setView("couponEdit");
+  };
+  const goBackToList = () => setView("coupons");
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -477,11 +520,30 @@ export default function App() {
 
           {view === "coupons" && (
             storeId
-              ? <CouponsView storeId={storeId} />
+              ? <CouponsView storeId={storeId} onCreate={openCreate} onEdit={openEdit} />
               : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
           )}
 
-          {view !== "home" && view !== "campaigns" && view !== "coupons" && (
+          {(view === "couponCreate" || view === "couponEdit") && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={goBackToList}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+                >
+                  ← Volver a cupones
+                </button>
+                <div className="text-sm text-slate-500">
+                  {view === "couponCreate" ? "Creando nuevo cupón" : `Editando cupón #${editingId ?? "-"}`}
+                </div>
+              </div>
+              {/* El editor no requiere props obligatorias; si después
+                  querés prefijar store_id o data, lo pasamos por props */}
+              <CouponEditor />
+            </div>
+          )}
+
+          {!["home","campaigns","coupons","couponCreate","couponEdit"].includes(view) && (
             <div className="text-sm text-slate-500">Vista “{view}” en construcción.</div>
           )}
 
