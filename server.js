@@ -393,112 +393,110 @@ app.get('/api/campaigns', async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ message:'Error al obtener campañas' }); }
 });
 
-// CREAR
+// --- CREAR CUPÓN (mock) ---
 app.post('/api/campaigns', async (req, res) => {
   try {
-    const b = req.body || {};
-    const store_id = String(b.store_id || '').trim();
-    const code = String(b.code || '').trim().toUpperCase();
-    const name = String(b.name || '').trim();
-    if (!store_id || !code || !name) return res.status(400).json({ message:'Faltan store_id, code o name' });
+    const {
+      store_id,
+      code,
+      name,
+      discount_type,
+      discount_value,
+      valid_from,
+      valid_until,
+      apply_scope,
+      include_category_ids = [],
+      exclude_category_ids = [],
+      include_product_ids = [],
+      exclude_product_ids = [],
+      max_discount_amount = null,
+      min_cart_amount = null,
+    } = req.body || {};
 
-    const discount_type = (b.discount_type || 'percent').toLowerCase(); // 'percent' | 'absolute'
-    const discount_value_num = Number(b.discount_value ?? 0);
-    const type  = discount_type === 'percent' ? 'percentage' : 'absolute';
-    const value = Number.isFinite(discount_value_num) ? Math.round(discount_value_num) : 0;
+    if (!store_id) return res.status(400).json({ error: 'Falta store_id' });
+    if (!code) return res.status(400).json({ error: 'Falta code' });
 
-    const valid_from = b.valid_from || new Date().toISOString().slice(0,10);
-    const valid_until = b.valid_until || new Date().toISOString().slice(0,10);
-    const apply_scope = (b.apply_scope || 'all').toString();
+    // TODO: guardar en DB y devolver el registro real
+    const now = new Date().toISOString();
+    const mock = {
+      id: String(Math.floor(Math.random() * 1000000)),
+      store_id,
+      code,
+      name: name || code,
+      discount_type: discount_type || 'percent',
+      discount_value: Number(discount_value ?? 0),
+      valid_from: valid_from || null,
+      valid_until: valid_until || null,
+      apply_scope: apply_scope || 'all',
+      include_category_ids,
+      exclude_category_ids,
+      include_product_ids,
+      exclude_product_ids,
+      max_discount_amount,
+      min_cart_amount,
+      status: 'active',
+      created_at: now,
+      updated_at: now,
+    };
 
-    const min_cart_amount     = b.min_cart_amount   != null ? Number(b.min_cart_amount)   : 0;
-    const max_discount_amount = b.max_discount_amount!=null ? Number(b.max_discount_amount) : null;
-    const monthly_cap_amount  = b.monthly_cap_amount !=null ? Number(b.monthly_cap_amount)  : null;
-    const exclude_sale_items  = b.exclude_sale_items === true;
-
-    const toJsonb = (arr) => (Array.isArray(arr) && arr.length ? JSON.stringify(arr.map(Number)) : null);
-    const include_category_ids = toJsonb(b.include_category_ids);
-    const exclude_category_ids = toJsonb(b.exclude_category_ids);
-    const include_product_ids  = toJsonb(b.include_product_ids);
-    const exclude_product_ids  = toJsonb(b.exclude_product_ids);
-
-    // legacy
-    const min_cart = b.min_cart != null ? Number(b.min_cart) : 0;
-    const monthly_cap = b.monthly_cap != null ? Number(b.monthly_cap) : 0;
-    const exclude_on_sale = b.exclude_on_sale != null ? !!b.exclude_on_sale : false;
-
-    const r = await pool.query(`
-      INSERT INTO campaigns (
-        id, store_id, name, code,
-        type, value, min_cart, monthly_cap,
-        start_date, end_date, exclude_on_sale, status,
-        created_at, updated_at,
-        discount_type, discount_value,
-        valid_from, valid_until, apply_scope,
-        min_cart_amount, max_discount_amount, monthly_cap_amount, exclude_sale_items,
-        include_category_ids, exclude_category_ids, include_product_ids, exclude_product_ids
-      )
-      VALUES (
-        gen_random_uuid(), $1,$2,$3,
-        $4,$5,$6,$7,
-        NULL,NULL,$8,'active',
-        now(), now(),
-        $9,$10,
-        $11,$12,$13,
-        $14,$15,$16,$17,
-        $18::jsonb,$19::jsonb,$20::jsonb,$21::jsonb
-      )
-      RETURNING id, store_id, code, name, created_at
-    `, [
-      store_id, name, code,
-      type, value, min_cart, monthly_cap,
-      exclude_on_sale,
-      discount_type, discount_value_num,
-      valid_from, valid_until, apply_scope,
-      min_cart_amount, max_discount_amount, monthly_cap_amount, exclude_sale_items,
-      include_category_ids, exclude_category_ids, include_product_ids, exclude_product_ids
-    ]);
-    res.json({ ok:true, campaign:r.rows[0] });
-  } catch (e) { console.error(e); res.status(500).json({ message:'Error al crear campaña', detail:e.detail || e.message }); }
+    return res.status(201).json(mock);
+  } catch (e) {
+    console.error('POST /api/campaigns error:', e);
+    res.status(500).json({ error: 'Error creando cupón' });
+  }
 });
 
-// EDITAR (parcial)
-app.patch('/api/campaigns/:id', async (req, res) => {
+// --- ACTUALIZAR CUPÓN (mock) ---
+app.put('/api/campaigns/:id', async (req, res) => {
   try {
-    const id = String(req.params.id || '').trim();
-    if (!id) return res.status(400).json({ ok:false, error:'Falta id' });
+    const { id } = req.params;
+    const {
+      store_id,
+      code,
+      name,
+      discount_type,
+      discount_value,
+      valid_from,
+      valid_until,
+      apply_scope,
+      include_category_ids = [],
+      exclude_category_ids = [],
+      include_product_ids = [],
+      exclude_product_ids = [],
+      max_discount_amount = null,
+      min_cart_amount = null,
+    } = req.body || {};
 
-    const b = req.body || {};
-    const cols=[], vals=[];
-    const push = (frag, v) => { cols.push(frag); vals.push(v); };
+    if (!store_id) return res.status(400).json({ error: 'Falta store_id' });
+    if (!id) return res.status(400).json({ error: 'Falta id' });
 
-    if (b.name != null)            push(`name=$${vals.length+1}`, String(b.name));
-    if (b.code != null)            push(`code=$${vals.length+1}`, String(b.code).toUpperCase());
-    if (b.discount_type != null)   push(`discount_type=$${vals.length+1}`, String(b.discount_type));
-    if (b.discount_value != null)  push(`discount_value=$${vals.length+1}`, Number(b.discount_value));
-    if (b.valid_from != null)      push(`valid_from=$${vals.length+1}`, b.valid_from ? String(b.valid_from) : null);
-    if (b.valid_until != null)     push(`valid_until=$${vals.length+1}`, b.valid_until ? String(b.valid_until) : null);
-    if (b.apply_scope != null)     push(`apply_scope=$${vals.length+1}`, String(b.apply_scope));
-    if (b.min_cart_amount != null) push(`min_cart_amount=$${vals.length+1}`, Number(b.min_cart_amount));
-    if (b.max_discount_amount!=null) push(`max_discount_amount=$${vals.length+1}`, b.max_discount_amount==null?null:Number(b.max_discount_amount));
-    if (b.monthly_cap_amount!=null)  push(`monthly_cap_amount=$${vals.length+1}`, b.monthly_cap_amount==null?null:Number(b.monthly_cap_amount));
-    if (b.exclude_sale_items!=null)  push(`exclude_sale_items=$${vals.length+1}`, !!b.exclude_sale_items);
+    // TODO: update real en DB y devolver registro actualizado
+    const now = new Date().toISOString();
+    const mock = {
+      id,
+      store_id,
+      code,
+      name: name || code,
+      discount_type: discount_type || 'percent',
+      discount_value: Number(discount_value ?? 0),
+      valid_from: valid_from || null,
+      valid_until: valid_until || null,
+      apply_scope: apply_scope || 'all',
+      include_category_ids,
+      exclude_category_ids,
+      include_product_ids,
+      exclude_product_ids,
+      max_discount_amount,
+      min_cart_amount,
+      status: 'active',
+      updated_at: now,
+    };
 
-    if (!cols.length) return res.status(400).json({ ok:false, error:'Nada para actualizar' });
-    cols.push('updated_at=now()');
-    vals.push(id);
-
-    const q = await pool.query(`
-      UPDATE campaigns SET ${cols.join(', ')}
-       WHERE id=$${vals.length}
-       RETURNING id, store_id, code, name, status,
-                 discount_type, discount_value, valid_from, valid_until,
-                 apply_scope, min_cart_amount, max_discount_amount, monthly_cap_amount,
-                 exclude_sale_items, created_at, updated_at
-    `, vals);
-    if (q.rowCount === 0) return res.status(404).json({ ok:false, error:'No existe la campaña' });
-    res.json({ ok:true, campaign:q.rows[0] });
-  } catch (e) { console.error(e); res.status(500).json({ ok:false, error:String(e.message||e) }); }
+    return res.status(200).json(mock);
+  } catch (e) {
+    console.error('PUT /api/campaigns/:id error:', e);
+    res.status(500).json({ error: 'Error actualizando cupón' });
+  }
 });
 
 // CAMBIAR ESTADO (active|paused)
