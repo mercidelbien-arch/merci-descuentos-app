@@ -90,7 +90,10 @@ app.get('/api/db/migrate', async (_req, res) => {
   catch (e) { console.error(e); res.status(500).json({ ok:false, error:e.message }); }
 });
 
-app.get('/', (_req, res) => res.redirect('/admin/?store_id=3739596'));
+app.get('/', (_req, res) => {
+  res.redirect('/admin/?store_id=3739596');
+});
+
 
 /* ---------- OAuth Tienda Nube ---------- */
 app.get('/install', (req, res) => {
