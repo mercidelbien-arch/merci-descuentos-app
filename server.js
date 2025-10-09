@@ -191,6 +191,29 @@ app.get('/api/tn/products/search', async (req, res) => {
   }
 });
 
+// Obtener un cupón por ID
+app.get("/api/campaigns/:id", async (req, res) => {
+  const { id } = req.params;
+  const { store_id } = req.query;
+
+  try {
+    const result = await pool.query(
+      `SELECT * FROM campaigns WHERE id = $1 ${store_id ? "AND store_id = $2" : ""} LIMIT 1`,
+      store_id ? [id, store_id] : [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Cupón no encontrado" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Error al obtener cupón:", err);
+    res.status(500).json({ error: "Error interno del servidor" });
+  }
+});
+
+
 
 app.all('/api/tn/register-callback', async (req, res) => {
   try {
