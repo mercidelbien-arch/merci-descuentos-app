@@ -531,7 +531,16 @@ export default function App() {
     window.history.replaceState(null, "", newUrl);
   }, [view]);
 
-  const storeId = useQueryParam("store_id") || "";
+  const qsStore = useQueryParam("store_id");
+const [storeId] = useState(() => {
+  const fromQS = qsStore && qsStore.trim();
+  if (fromQS) {
+    localStorage.setItem("merci.store_id", fromQS);
+    return fromQS;
+  }
+  const fromLS = localStorage.getItem("merci.store_id");
+  return fromLS || ""; // si sigue vacío, mostramos aviso
+});
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
