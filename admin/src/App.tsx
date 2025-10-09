@@ -5,7 +5,20 @@ import {
 } from "recharts";
 import CouponEditor from "./CouponEditor";
 
-/* ===== Iconitos simples ===== */
+/* =========================
+   Helpers
+========================= */
+/** Lee un parámetro de querystring (en cliente) */
+function useQueryParam(name: string) {
+  const params = new URLSearchParams(
+    typeof window !== "undefined" ? window.location.search : ""
+  );
+  return params.get(name);
+}
+
+/* =========================
+   Iconitos (fuera de App)
+========================= */
 const IconTag = () => (
   <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M20 13l-7 7a2 2 0 0 1-2.828 0L3 13l7-7L20 13z" />
@@ -33,7 +46,9 @@ const IconSettings = () => (
   </svg>
 );
 
-/* ========= Utilitarios UI ========= */
+/* =========================
+   UI helpers
+========================= */
 function Trend({ value }: { value: number }) {
   const isUp = value >= 0;
   const pct = Math.round(Math.abs(value) * 100);
@@ -73,7 +88,9 @@ function Card({ title, value, subtitle, extra }: { title: string; value: React.R
   );
 }
 
-/* ========= Datos mock “Principal” ========= */
+/* =========================
+   Mock data (Principal)
+========================= */
 const MOCK_KPIS = {
   monthLabel: "Septiembre 2025",
   montoTotalDescontado: 428450,
@@ -97,11 +114,9 @@ const MOCK_RANKING = [
   { name: "2x1 Barritas", monto: 30450 },
 ];
 
-/* ========= Helpers ========= */
-function useQueryParam(name: string) {
-  const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
-  return params.get(name);
-}
+/* =========================
+   Tipos y helpers API
+========================= */
 type Campaign = {
   id: string | number;
   code: string;
@@ -114,7 +129,6 @@ type Campaign = {
   created_at?: string;
 };
 
-/* ========= API helpers (acciones) ========= */
 async function apiPatch(url: string, body: any) {
   const r = await fetch(url, {
     method: "PATCH",
@@ -137,7 +151,9 @@ function statusBadge(s?: string) {
   return <span className={`${base} bg-slate-50 text-slate-500 border border-slate-200`}>{s || "-"}</span>;
 }
 
-/* ========= Sidebar & router por estado ========= */
+/* =========================
+   Sidebar
+========================= */
 type ViewName = "home" | "campaigns" | "coupons" | "categories" | "redemptions" | "clients" | "logs";
 function Sidebar({ current, onChange }: { current: ViewName; onChange: (v: ViewName) => void }) {
   const items: { key: ViewName; label: string }[] = [
@@ -176,7 +192,9 @@ function Sidebar({ current, onChange }: { current: ViewName; onChange: (v: ViewN
   );
 }
 
-/* ========= Vista Principal ========= */
+/* =========================
+   Vistas
+========================= */
 function HomeView() {
   const k = MOCK_KPIS;
   return (
@@ -241,7 +259,7 @@ function HomeView() {
         <Section title="KPIs de ticket">
           <div className="grid grid-cols-2 gap-3">
             <Card title="Descuento prom. por pedido" value={<Peso amount={k.descuentoPromedioPorPedido} />} />
-            <Card title="% pedidos con cupón" value={`${Math.round(k.porcentajePedidosConCupon * 100)}%`} />
+            <Card title="% pedidos con cupón" value={`${Math.round(MOCK_KPIS.porcentajePedidosConCupon * 100)}%`} />
             <Card title="Ticket con descuento" value={<Peso amount={k.ticketPromedioCon} />} />
             <Card title="Ticket sin descuento" value={<Peso amount={k.ticketPromedioSin} />} />
           </div>
@@ -274,7 +292,6 @@ function HomeView() {
   );
 }
 
-/* ========= Vista: Campañas ========= */
 function CampaignsView({ onGoCoupons }: { onGoCoupons: () => void }) {
   return (
     <>
@@ -325,22 +342,17 @@ function CampaignsView({ onGoCoupons }: { onGoCoupons: () => void }) {
   );
 }
 
-/* ========= Vista: Cupones ========= */
-function CouponsView({
-  storeId,
-}: {
-  storeId: string;
-}) {
+function CouponsView({ storeId }: { storeId: string }) {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<Campaign[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // --- estado del editor ligado a la URL ---
+  // editor en URL
   const readEditorFromUrl = () => {
     const p = new URLSearchParams(window.location.search);
     const ed = p.get("editor"); // "new" | "<id>" | null
     return ed;
-  };
+    };
   const [editor, setEditor] = useState<string | null>(readEditorFromUrl());
 
   const openEditor = (id: string) => {
@@ -355,19 +367,14 @@ function CouponsView({
     window.history.pushState(null, "", `${window.location.pathname}?${p.toString()}`);
     setEditor(null);
   };
-
   useEffect(() => {
     const onPop = () => setEditor(readEditorFromUrl());
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  // ---------- fetch ----------
-  const url = useMemo(
-    () => `/api/campaigns?store_id=${encodeURIComponent(storeId)}`,
-    [storeId]
-  );
-
+  // fetch
+  const url = useMemo(() => `/api/campaigns?store_id=${encodeURIComponent(storeId)}`, [storeId]);
   const load = () => {
     setLoading(true);
     setError(null);
@@ -380,7 +387,6 @@ function CouponsView({
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   };
-
   useEffect(() => { load(); }, [url]);
 
   const onToggle = async (c: Campaign) => {
@@ -402,7 +408,6 @@ function CouponsView({
     }
   };
 
-  // cuando el editor guarda, refrescamos lista y cerramos
   const handleSaved = () => { load(); closeEditor(); };
 
   return (
@@ -518,9 +523,11 @@ function CouponsView({
   );
 }
 
-
-/* ========= App principal ========= */
+/* =========================
+   App principal
+========================= */
 export default function App() {
+  // Router de vistas
   const initialView = (new URLSearchParams(window.location.search).get("view") as ViewName) || "home";
   const [view, setView] = useState<ViewName>(initialView);
 
@@ -531,16 +538,17 @@ export default function App() {
     window.history.replaceState(null, "", newUrl);
   }, [view]);
 
+  // store_id persistente (QS ➜ localStorage ➜ memoria)
   const qsStore = useQueryParam("store_id");
-const [storeId] = useState(() => {
-  const fromQS = qsStore && qsStore.trim();
-  if (fromQS) {
-    localStorage.setItem("merci.store_id", fromQS);
-    return fromQS;
-  }
-  const fromLS = localStorage.getItem("merci.store_id");
-  return fromLS || ""; // si sigue vacío, mostramos aviso
-});
+  const [storeId] = useState(() => {
+    const fromQS = qsStore && qsStore.trim();
+    if (fromQS) {
+      localStorage.setItem("merci.store_id", fromQS);
+      return fromQS;
+    }
+    const fromLS = localStorage.getItem("merci.store_id");
+    return fromLS || "";
+  });
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -552,16 +560,17 @@ const [storeId] = useState(() => {
           {view === "campaigns" && <CampaignsView onGoCoupons={() => setView("coupons")} />}
 
           {view === "coupons" && (
-            storeId
-              ? <CouponsView storeId={storeId} />
-              : <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
+            storeId ? <CouponsView storeId={storeId} /> :
+            <div className="text-sm text-rose-600">Falta <code>store_id</code> en la URL.</div>
           )}
 
           {view !== "home" && view !== "campaigns" && view !== "coupons" && (
             <div className="text-sm text-slate-500">Vista “{view}” en construcción.</div>
           )}
 
-          <div className="mt-8 text-center text-xs text-slate-400">© {new Date().getFullYear()} Merci Descuentos</div>
+          <div className="mt-8 text-center text-xs text-slate-400">
+            © {new Date().getFullYear()} Merci Descuentos
+          </div>
         </main>
       </div>
     </div>
