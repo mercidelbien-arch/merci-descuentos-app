@@ -11,6 +11,14 @@ import crypto from 'crypto';
 import templatesRouter from './api/routes/templates.js';
 import { pool } from './db.js';
 
+import pg from "pg";
+const { Pool } = pg;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
@@ -651,4 +659,37 @@ app.get('/admin/*', (_req, res) => res.sendFile(path.join(__dirname, 'admin/dist
 
 /* ---------- Start ---------- */
 const PORT = Number(process.env.PORT || 3000);
+async function ensureCampaignsTable() {
+  const query = `
+    CREATE TABLE IF NOT EXISTS campaigns (
+      id SERIAL PRIMARY KEY,
+      store_id TEXT NOT NULL,
+      code TEXT NOT NULL,
+      name TEXT,
+      discount_type TEXT CHECK (discount_type IN ('percent', 'absolute')) NOT NULL,
+      discount_value NUMERIC NOT NULL,
+      valid_from TIMESTAMP,
+      valid_until TIMESTAMP,
+      apply_scope TEXT DEFAULT 'all',
+      include_category_ids TEXT[],
+      exclude_category_ids TEXT[],
+      include_product_ids TEXT[],
+      exclude_product_ids TEXT[],
+      max_discount_amount NUMERIC,
+      min_cart_amount NUMERIC,
+      status TEXT DEFAULT 'active',
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    );
+  `;
+  try {
+    await pool.query(query);
+    console.log("✅ Tabla 'campaigns' verificada o creada correctamente.");
+  } catch (err) {
+    console.error("❌ Error creando/verificando tabla campaigns:", err);
+  }
+}
+ensureCampaignsTable();
+
+
 app.listen(PORT, () => console.log('Server on :' + PORT));
