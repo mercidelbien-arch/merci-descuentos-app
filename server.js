@@ -9,18 +9,10 @@ import axios from 'axios';
 import crypto from 'crypto';
 
 import templatesRouter from './api/routes/templates.js';
-import { pool } from './db.js';
-
-import pg from "pg";
-const { Pool } = pg;
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
-
+import { pool } from './db.js'; // ✅ usamos el pool que ya viene de db.js
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+const __dirname = path.dirname(__filename);
 
 const PROMO_ID = process.env.TN_PROMO_ID || '1c508de3-84a0-4414-9c75-c2aee4814fcd';
 
@@ -657,8 +649,7 @@ app.post('/webhooks/orders/create', (_req, res) => res.sendStatus(200));
 app.use('/admin', express.static(path.join(__dirname, 'admin/dist'), { maxAge:'1h' }));
 app.get('/admin/*', (_req, res) => res.sendFile(path.join(__dirname, 'admin/dist/index.html')));
 
-/* ---------- Start ---------- */
-const PORT = Number(process.env.PORT || 3000);
+// ==== Crear tabla campaigns si no existe ====
 async function ensureCampaignsTable() {
   const query = `
     CREATE TABLE IF NOT EXISTS campaigns (
@@ -691,5 +682,27 @@ async function ensureCampaignsTable() {
 }
 ensureCampaignsTable();
 
+// ==== Rutas ====
+app.use('/api/templates', templatesRouter);
 
-app.listen(PORT, () => console.log('Server on :' + PORT));
+// ==== Ping simple ====
+app.get('/api/db/ping', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ ok: true, message: 'DB OK' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ==== Estático (frontend) ====
+app.use(express.static(path.join(__dirname, 'admin', 'dist')));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'admin', 'dist', 'index.html'));
+});
+
+// ==== Start ====
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
