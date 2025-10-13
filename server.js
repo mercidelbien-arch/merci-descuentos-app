@@ -1,4 +1,4 @@
-// server.js — Express ESM limpio
+// server.js — Express ESM limpio y consistente
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -9,7 +9,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 
 import templatesRouter from './api/routes/templates.js';
-import { pool } from './db.js'; // ✅ usamos el pool que ya viene de db.js
+import { pool } from './db.js'; // ✅ pool único
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,7 +33,7 @@ app.get('/api/health', (_req, res) => res.json({ ok:true, node:process.version, 
 app.use('/api/templates', templatesRouter);
 app.use('/widget', express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
 
-/* ---------- DB / Migraciones ---------- */
+/* ---------- Migraciones (una sola versión coherente) ---------- */
 const MIGRATE_SQL = `
   CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -46,18 +46,13 @@ const MIGRATE_SQL = `
 
   CREATE TABLE IF NOT EXISTS campaigns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    store_id TEXT NOT NULL REFERENCES stores(store_id) ON DELETE CASCADE,
+    store_id TEXT NOT NULL,
     code TEXT NOT NULL,
     name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
 
-    -- viejo
-    type TEXT NOT NULL CHECK (type IN ('percentage','absolute')),
-    value INTEGER NOT NULL,
-
-    -- nuevo
-    discount_type TEXT,
-    discount_value NUMERIC,
+    discount_type TEXT CHECK (discount_type IN ('percent','absolute')) NOT NULL,
+    discount_value NUMERIC NOT NULL,
 
     valid_from DATE,
     valid_until DATE,
@@ -66,13 +61,6 @@ const MIGRATE_SQL = `
     max_discount_amount NUMERIC,
     monthly_cap_amount NUMERIC,
     exclude_sale_items BOOLEAN DEFAULT false,
-
-    -- legacy
-    min_cart INTEGER DEFAULT 0,
-    monthly_cap INTEGER DEFAULT 0,
-    exclude_on_sale BOOLEAN DEFAULT false,
-    start_date DATE,
-    end_date DATE,
 
     include_category_ids JSONB,
     exclude_category_ids JSONB,
@@ -85,15 +73,10 @@ const MIGRATE_SQL = `
     UNIQUE (store_id, code)
   );
 `;
-app.get('/api/db/migrate', async (_req, res) => {
-  try { await pool.query(MIGRATE_SQL); res.json({ ok:true, message:'Migraciones aplicadas' }); }
-  catch (e) { console.error(e); res.status(500).json({ ok:false, error:e.message }); }
-});
+await pool.query(MIGRATE_SQL);
 
-app.get('/', (_req, res) => {
-  res.redirect('/admin/?store_id=3739596');
-});
-
+/* ---------- Redirección al admin con store_id por defecto ---------- */
+app.get('/', (_req, res) => res.redirect('/admin/?store_id=3739596'));
 
 /* ---------- OAuth Tienda Nube ---------- */
 app.get('/install', (req, res) => {
@@ -138,7 +121,7 @@ app.get('/oauth/callback', async (req, res) => {
   }
 });
 
-/* ---------- TN helpers ---------- */
+/* ---------- Tiendanube helpers (categorías / productos / scripts) ---------- */
 const tnBase = (store_id) => `https://api.tiendanube.com/v1/${store_id}`;
 const tnHeaders = (token) => ({
   'Content-Type': 'application/json',
@@ -158,11 +141,10 @@ app.get('/api/tn/categories', async (req, res) => {
     res.json(cats);
   } catch (e) {
     console.error(e.response?.data || e.message);
-    res.status(e.response?.status || 500).json({ message:'Error obteniendo categorías', detail:e.response?.data || e.message });
+    res.status(e.response?.status || 500).json({ message:'Error obteniendo categorías' });
   }
 });
 
-// Buscar productos por texto (nombre / SKU)
 app.get('/api/tn/products/search', async (req, res) => {
   try {
     const store_id = String(req.query.store_id || '').trim();
@@ -172,11 +154,9 @@ app.get('/api/tn/products/search', async (req, res) => {
 
     const r = await pool.query('SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1', [store_id]);
     if (r.rowCount === 0) return res.status(401).json({ message: 'No hay token para esa tienda' });
-    const token = r.rows[0].access_token;
 
-    // Tiendanube: /products?per_page=30&q=texto  (filtra por nombre/sku)
     const resp = await axios.get(`${tnBase(store_id)}/products`, {
-      headers: tnHeaders(token),
+      headers: tnHeaders(r.rows[0].access_token),
       params: { per_page: 30, q },
     });
 
@@ -189,99 +169,6 @@ app.get('/api/tn/products/search', async (req, res) => {
     console.error('GET /api/tn/products/search error:', e.response?.data || e.message);
     res.status(e.response?.status || 500).json({ message: 'Error buscando productos' });
   }
-});
-
-// Obtener un cupón por ID
-app.get("/api/campaigns/:id", async (req, res) => {
-  const { id } = req.params;
-  const { store_id } = req.query;
-
-  try {
-    const result = await pool.query(
-      `SELECT * FROM campaigns WHERE id = $1 ${store_id ? "AND store_id = $2" : ""} LIMIT 1`,
-      store_id ? [id, store_id] : [id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Cupón no encontrado" });
-    }
-
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error("Error al obtener cupón:", err);
-    res.status(500).json({ error: "Error interno del servidor" });
-  }
-});
-
-
-
-app.all('/api/tn/register-callback', async (req, res) => {
-  try {
-    const store_id = String((req.body?.store_id) || req.query.store_id || '').trim();
-    if (!store_id) return res.status(400).json({ message:'Falta store_id' });
-    const r = await pool.query('SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1', [store_id]);
-    if (r.rowCount === 0) return res.status(401).json({ message:'No hay token' });
-    const url = `${process.env.APP_BASE_URL}/discounts/callback`;
-    const resp = await axios.put(`${tnBase(store_id)}/discounts/callbacks`, { url }, { headers: tnHeaders(r.rows[0].access_token), timeout:8000 });
-    res.json({ ok:true, data:resp.data || null, url });
-  } catch (e) { res.status(e.response?.status || 500).json({ ok:false, error:e.response?.data || e.message }); }
-});
-
-app.get('/api/tn/promotions/register-base', async (req, res) => {
-  try {
-    const store_id = String(req.query.store_id || '').trim();
-    if (!store_id) return res.status(400).json({ ok:false, error:'Falta store_id' });
-    const r = await pool.query('SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1', [store_id]);
-    if (r.rowCount === 0) return res.status(401).json({ ok:false, error:'No hay token' });
-    const body = { name:'Merci Engine – Base', allocation_type:'cross_items' };
-    const resp = await axios.post(`${tnBase(store_id)}/promotions`, body, { headers: tnHeaders(r.rows[0].access_token) });
-    res.json({ ok:true, data:resp.data });
-  } catch (e) { res.status(e.response?.status || 500).json({ ok:false, error:e.response?.data || e.message }); }
-});
-
-app.get('/api/tn/scripts/list', async (req, res) => {
-  try {
-    const store_id = String(req.query.store_id || '').trim();
-    if (!store_id) return res.status(400).json({ ok:false, error:'Falta store_id' });
-    const r = await pool.query('SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1', [store_id]);
-    if (r.rowCount === 0) return res.status(401).json({ ok:false, error:'No hay token' });
-    const listRes = await axios.get(`${tnBase(store_id)}/scripts`, { headers: tnHeaders(r.rows[0].access_token) });
-    res.json({ ok:true, raw:listRes.data });
-  } catch (e) { res.status(e.response?.status || 500).json({ ok:false, error:e.response?.data || e.message }); }
-});
-
-app.all('/api/tn/scripts/install/by-id', async (req, res) => {
-  try {
-    const store_id = String((req.body?.store_id) || req.query.store_id || '').trim();
-    const script_id = String((req.body?.script_id) || req.query.script_id || '').trim();
-    if (!store_id) return res.status(400).json({ ok:false, error:'Falta store_id' });
-    if (!script_id) return res.status(400).json({ ok:false, error:'Falta script_id' });
-    const r = await pool.query('SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1', [store_id]);
-    if (r.rowCount === 0) return res.status(401).json({ ok:false, error:'No hay token' });
-    try {
-      const upd = await axios.put(`${tnBase(store_id)}/scripts/${script_id}`, { script_id, enabled:true }, { headers: tnHeaders(r.rows[0].access_token) });
-      res.json({ ok:true, action:'updated_by_id', data:upd.data });
-    } catch {
-      const created = await axios.post(`${tnBase(store_id)}/scripts`, { script_id, enabled:true }, { headers: tnHeaders(r.rows[0].access_token) });
-      res.json({ ok:true, action:'created_by_id', data:created.data });
-    }
-  } catch (e) { res.status(e.response?.status || 500).json({ ok:false, error:e.response?.data || e.message }); }
-});
-
-app.all('/api/tn/scripts/install/direct', async (req, res) => {
-  try {
-    const store_id = String(req.body?.store_id || req.query.store_id || '').trim();
-    if (!store_id) return res.status(400).json({ ok:false, error:'Falta store_id' });
-    const src = String(req.body?.src || req.query.src || `${process.env.APP_BASE_URL}/widget/merci-checkout-coupon-widget.js`).trim();
-    const name = String(req.body?.name || req.query.name || 'Merci Checkout Widget (direct)').trim();
-    const event = String(req.body?.event || req.query.event || 'onload').trim();
-    const location = String(req.body?.location || req.query.location || 'checkout').trim();
-    const r = await pool.query('SELECT access_token FROM stores WHERE store_id=$1 LIMIT 1', [store_id]);
-    if (r.rowCount === 0) return res.status(401).json({ ok:false, error:'No hay token' });
-    const body = { name, src, event, location, enabled:true };
-    const created = await axios.post(`${tnBase(store_id)}/scripts`, body, { headers: tnHeaders(r.rows[0].access_token) });
-    res.json({ ok:true, action:'created_direct', data:created.data });
-  } catch (e) { res.status(e.response?.status || 500).json({ ok:false, error:e.response?.data || e.message }); }
 });
 
 /* ---------- Métricas (home) ---------- */
@@ -355,24 +242,8 @@ app.get('/api/metrics/summary', async (req, res) => {
   }
 });
 
-app.get('/api/metrics/series/daily', async (req, res) => {
-  try {
-    const store_id = String(req.query.store_id || '').trim();
-    const { from:mFrom, to:mTo } = monthRange(0);
-    const [{ rows:uses }, { rows:amounts }] = await Promise.all([
-      pool.query(`SELECT date_trunc('day', created_at)::date AS day, COUNT(*)::int AS uses FROM coupon_ledger WHERE store_id=$1 AND created_at >= $2 AND created_at < $3 GROUP BY 1 ORDER BY 1`, [store_id, mFrom, mTo]),
-      pool.query(`SELECT date_trunc('day', created_at)::date AS day, COALESCE(SUM(applied_amount),0)::numeric AS amount FROM coupon_ledger WHERE store_id=$1 AND created_at >= $2 AND created_at < $3 GROUP BY 1 ORDER BY 1`, [store_id, mFrom, mTo]),
-    ]);
-    res.json({ ok:true, uses_per_day:uses, amount_per_day:amounts });
-  } catch (e) {
-    const msg = String(e.message||e);
-    if (/relation .*coupon_ledger.* does not exist/i.test(msg)) return res.json({ ok:true, uses_per_day:[], amount_per_day:[] });
-    console.error(e); res.status(500).json({ ok:false, error:msg });
-  }
-});
-
-/* ---------- Campañas CRUD ---------- */
-// LISTAR (oculta status='deleted' si los hubiera)
+/* ---------- Campañas CRUD (persistente) ---------- */
+// LISTAR (oculta 'deleted')
 app.get('/api/campaigns', async (req, res) => {
   try {
     const store_id = String(req.query.store_id || '').trim();
@@ -393,119 +264,131 @@ app.get('/api/campaigns', async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ message:'Error al obtener campañas' }); }
 });
 
-// --- CREAR CUPÓN (mock) ---
+// OBTENER UNO
+app.get('/api/campaigns/:id', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    const store_id = String(req.query.store_id || '').trim();
+    if (!id) return res.status(400).json({ error:'Falta id' });
+    const { rows } = await pool.query(
+      `SELECT * FROM campaigns WHERE id=$1 ${store_id ? 'AND store_id=$2' : ''} LIMIT 1`,
+      store_id ? [id, store_id] : [id]
+    );
+    if (rows.length === 0) return res.status(404).json({ error:'Cupón no encontrado' });
+    res.json(rows[0]);
+  } catch (e) { console.error(e); res.status(500).json({ error:'Error interno' }); }
+});
+
+// CREAR
 app.post('/api/campaigns', async (req, res) => {
   try {
     const {
-      store_id,
-      code,
-      name,
-      discount_type,
-      discount_value,
-      valid_from,
-      valid_until,
-      apply_scope,
+      store_id, code, name,
+      discount_type, discount_value,
+      valid_from, valid_until,
+      apply_scope = 'all',
       include_category_ids = [],
       exclude_category_ids = [],
-      include_product_ids = [],
-      exclude_product_ids = [],
+      include_product_ids  = [],
+      exclude_product_ids  = [],
       max_discount_amount = null,
-      min_cart_amount = null,
+      min_cart_amount = 0,
+      monthly_cap_amount = null,
+      exclude_sale_items = false,
     } = req.body || {};
 
-    if (!store_id) return res.status(400).json({ error: 'Falta store_id' });
-    if (!code) return res.status(400).json({ error: 'Falta code' });
+    if (!store_id) return res.status(400).json({ error:'Falta store_id' });
+    if (!code) return res.status(400).json({ error:'Falta code' });
+    if (!discount_type || !['percent','absolute'].includes(String(discount_type))) {
+      return res.status(400).json({ error:'discount_type inválido' });
+    }
 
-    // TODO: guardar en DB y devolver el registro real
-    const now = new Date().toISOString();
-    const mock = {
-      id: String(Math.floor(Math.random() * 1000000)),
-      store_id,
-      code,
-      name: name || code,
-      discount_type: discount_type || 'percent',
-      discount_value: Number(discount_value ?? 0),
-      valid_from: valid_from || null,
-      valid_until: valid_until || null,
-      apply_scope: apply_scope || 'all',
-      include_category_ids,
-      exclude_category_ids,
-      include_product_ids,
-      exclude_product_ids,
-      max_discount_amount,
-      min_cart_amount,
-      status: 'active',
-      created_at: now,
-      updated_at: now,
-    };
-
-    return res.status(201).json(mock);
-  } catch (e) {
-    console.error('POST /api/campaigns error:', e);
-    res.status(500).json({ error: 'Error creando cupón' });
-  }
+    const { rows } = await pool.query(
+      `INSERT INTO campaigns (
+        store_id, code, name, status,
+        discount_type, discount_value,
+        valid_from, valid_until, apply_scope,
+        include_category_ids, exclude_category_ids,
+        include_product_ids,  exclude_product_ids,
+        max_discount_amount, min_cart_amount, monthly_cap_amount, exclude_sale_items
+      ) VALUES (
+        $1,$2,$3,'active',
+        $4,$5,
+        $6,$7,$8,
+        $9,$10,$11,$12,
+        $13,$14,$15,$16
+      )
+      RETURNING *`,
+      [
+        store_id, code, (name || code),
+        discount_type, Number(discount_value),
+        valid_from || null, valid_until || null, apply_scope,
+        JSON.stringify(include_category_ids), JSON.stringify(exclude_category_ids),
+        JSON.stringify(include_product_ids),  JSON.stringify(exclude_product_ids),
+        max_discount_amount, min_cart_amount, monthly_cap_amount, exclude_sale_items
+      ]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) { console.error('POST /api/campaigns', e); res.status(500).json({ error:'Error creando cupón' }); }
 });
 
-// --- ACTUALIZAR CUPÓN (mock) ---
+// ACTUALIZAR
 app.put('/api/campaigns/:id', async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ error:'Falta id' });
+
     const {
-      store_id,
-      code,
-      name,
-      discount_type,
-      discount_value,
-      valid_from,
-      valid_until,
-      apply_scope,
+      store_id, code, name,
+      discount_type, discount_value,
+      valid_from, valid_until,
+      apply_scope = 'all',
       include_category_ids = [],
       exclude_category_ids = [],
-      include_product_ids = [],
-      exclude_product_ids = [],
+      include_product_ids  = [],
+      exclude_product_ids  = [],
       max_discount_amount = null,
-      min_cart_amount = null,
+      min_cart_amount = 0,
+      monthly_cap_amount = null,
+      exclude_sale_items = false,
+      status = 'active',
     } = req.body || {};
 
-    if (!store_id) return res.status(400).json({ error: 'Falta store_id' });
-    if (!id) return res.status(400).json({ error: 'Falta id' });
+    if (!store_id) return res.status(400).json({ error:'Falta store_id' });
 
-    // TODO: update real en DB y devolver registro actualizado
-    const now = new Date().toISOString();
-    const mock = {
-      id,
-      store_id,
-      code,
-      name: name || code,
-      discount_type: discount_type || 'percent',
-      discount_value: Number(discount_value ?? 0),
-      valid_from: valid_from || null,
-      valid_until: valid_until || null,
-      apply_scope: apply_scope || 'all',
-      include_category_ids,
-      exclude_category_ids,
-      include_product_ids,
-      exclude_product_ids,
-      max_discount_amount,
-      min_cart_amount,
-      status: 'active',
-      updated_at: now,
-    };
-
-    return res.status(200).json(mock);
-  } catch (e) {
-    console.error('PUT /api/campaigns/:id error:', e);
-    res.status(500).json({ error: 'Error actualizando cupón' });
-  }
+    const { rows, rowCount } = await pool.query(
+      `UPDATE campaigns SET
+         code=$1, name=$2, status=$3,
+         discount_type=$4, discount_value=$5,
+         valid_from=$6, valid_until=$7, apply_scope=$8,
+         include_category_ids=$9, exclude_category_ids=$10,
+         include_product_ids=$11,  exclude_product_ids=$12,
+         max_discount_amount=$13, min_cart_amount=$14, monthly_cap_amount=$15,
+         exclude_sale_items=$16, updated_at=now()
+       WHERE id=$17 AND store_id=$18
+       RETURNING *`,
+      [
+        code, (name || code), status,
+        discount_type, Number(discount_value),
+        valid_from || null, valid_until || null, apply_scope,
+        JSON.stringify(include_category_ids), JSON.stringify(exclude_category_ids),
+        JSON.stringify(include_product_ids),  JSON.stringify(exclude_product_ids),
+        max_discount_amount, min_cart_amount, monthly_cap_amount,
+        exclude_sale_items, id, store_id
+      ]
+    );
+    if (rowCount === 0) return res.status(404).json({ error:'Cupón no encontrado' });
+    res.json(rows[0]);
+  } catch (e) { console.error('PUT /api/campaigns/:id', e); res.status(500).json({ error:'Error actualizando cupón' }); }
 });
 
-// CAMBIAR ESTADO (active|paused)
+// CAMBIAR ESTADO
 app.patch('/api/campaigns/:id/status', async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
     const next = String(req.body?.status || '').trim().toLowerCase();
     if (!id) return res.status(400).json({ ok:false, error:'Falta id' });
-    if (!['active','paused'].includes(next)) return res.status(400).json({ ok:false, error:'Estado inválido (use active|paused)' });
+    if (!['active','paused'].includes(next)) return res.status(400).json({ ok:false, error:'Estado inválido (active|paused)' });
     const r = await pool.query(
       `UPDATE campaigns SET status=$2, updated_at=now() WHERE id=$1 RETURNING id, code, status`,
       [id, next]
@@ -515,7 +398,7 @@ app.patch('/api/campaigns/:id/status', async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ ok:false, error:e.message }); }
 });
 
-// ELIMINAR (real)
+// ELIMINAR
 app.delete('/api/campaigns/:id', async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
@@ -649,60 +532,6 @@ app.post('/webhooks/orders/create', (_req, res) => res.sendStatus(200));
 app.use('/admin', express.static(path.join(__dirname, 'admin/dist'), { maxAge:'1h' }));
 app.get('/admin/*', (_req, res) => res.sendFile(path.join(__dirname, 'admin/dist/index.html')));
 
-// ==== Crear tabla campaigns si no existe ====
-async function ensureCampaignsTable() {
-  const query = `
-    CREATE TABLE IF NOT EXISTS campaigns (
-      id SERIAL PRIMARY KEY,
-      store_id TEXT NOT NULL,
-      code TEXT NOT NULL,
-      name TEXT,
-      discount_type TEXT CHECK (discount_type IN ('percent', 'absolute')) NOT NULL,
-      discount_value NUMERIC NOT NULL,
-      valid_from TIMESTAMP,
-      valid_until TIMESTAMP,
-      apply_scope TEXT DEFAULT 'all',
-      include_category_ids TEXT[],
-      exclude_category_ids TEXT[],
-      include_product_ids TEXT[],
-      exclude_product_ids TEXT[],
-      max_discount_amount NUMERIC,
-      min_cart_amount NUMERIC,
-      status TEXT DEFAULT 'active',
-      created_at TIMESTAMP DEFAULT NOW(),
-      updated_at TIMESTAMP DEFAULT NOW()
-    );
-  `;
-  try {
-    await pool.query(query);
-    console.log("✅ Tabla 'campaigns' verificada o creada correctamente.");
-  } catch (err) {
-    console.error("❌ Error creando/verificando tabla campaigns:", err);
-  }
-}
-ensureCampaignsTable();
-
-// ==== Rutas ====
-app.use('/api/templates', templatesRouter);
-
-// ==== Ping simple ====
-app.get('/api/db/ping', async (req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({ ok: true, message: 'DB OK' });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
-
-// ==== Estático (frontend) ====
-app.use(express.static(path.join(__dirname, 'admin', 'dist')));
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'admin', 'dist', 'index.html'));
-});
-
-// ==== Start ====
+/* ---------- Start ---------- */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
